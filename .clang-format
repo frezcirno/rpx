@@ -11,7 +11,7 @@ AccessModifierOffset: -2
 
 # 左括号(左圆括号、左尖括号、左方括号)后的对齐: Align, DontAlign, AlwaysBreak(总是在左括号后换行)
 AlignAfterOpenBracket: Align
- 
+
 # 连续赋值时，对齐所有等号
 AlignConsecutiveAssignments: false
 
@@ -72,7 +72,7 @@ AlwaysBreakAfterReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
  
 # 总是在template声明后换行
-AlwaysBreakTemplateDeclarations: false
+AlwaysBreakTemplateDeclarations: true
  
 # false表示函数实参要么都在同一行，要么都各自一行
 BinPackArguments: false

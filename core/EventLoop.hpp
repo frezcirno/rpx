@@ -163,6 +163,7 @@ public:
       if (readCb)
         readCb();
     }
+
     if (_events & EPOLLOUT) {
       if (writeCb)
         writeCb();
@@ -170,6 +171,28 @@ public:
   }
 
   void remove();
+
+  static std::string eventsToString(int events)
+  {
+    std::string evt;
+    if (events & EPOLLIN)
+      evt += "EPOLLIN ";
+    if (events & EPOLLPRI)
+      evt += "EPOLLPRI ";
+    if (events & EPOLLOUT)
+      evt += "EPOLLOUT ";
+    if (events & EPOLLHUP)
+      evt += "EPOLLHUP ";
+    if (events & EPOLLRDHUP)
+      evt += "EPOLLRDHUP ";
+    if (events & EPOLLERR)
+      evt += "EPOLLERR ";
+    if (events & EPOLLONESHOT)
+      evt += "EPOLLONESHOT ";
+    if (events & EPOLLET)
+      evt += "EPOLLET ";
+    return evt;
+  }
 
 private:
   int _fd;
@@ -298,7 +321,7 @@ public:
     ::close(_wakeupFd);
   }
 
-  bool isOwner()
+  bool isInEventLoop()
   {
     return _ownerThreadId == ::gettid();
   }
@@ -308,20 +331,16 @@ public:
     while (running) {
       _activeChannels.clear();
       _poller->poll(&_activeChannels);
-      std::cout << _activeChannels.size() << " events polled" << std::endl;
-      for (auto ch : _activeChannels) {
+      for (auto ch : _activeChannels)
         ch->handleEvent();
-      }
       std::vector<Task> tasks;
       _callingPendingTasks = true;
       {
         MutexGuard lock(_mutex);
         tasks.swap(_pendingTask);
       }
-      std::cout << "run " << tasks.size() << " pending tasks" << std::endl;
-      for (auto task : tasks) {
+      for (auto task : tasks)
         task();
-      }
       _callingPendingTasks = true;
     }
   }
@@ -348,14 +367,15 @@ public:
       _pendingTask.push_back(std::move(cb));
     }
 
-    if (!isOwner() || _callingPendingTasks) {
+    if (!isInEventLoop() || _callingPendingTasks) {
       wakeupWakeup();   // raise a new event
     }
   }
 
   void runInLoop(const Task& cb)
   {
-    if (isOwner()) {
+    if (isInEventLoop()) {
+      // in the loop now
       cb();
     } else {
       queueInLoop(std::move(cb));

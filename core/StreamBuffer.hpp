@@ -112,6 +112,11 @@ public:
     }
   }
 
+  void popFront()
+  {
+    _head = _tail = _data + _headRoom;
+  }
+
 private:
   char* _data;
   char* _head;

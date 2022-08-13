@@ -39,7 +39,7 @@ public:
 
   void listen()
   {
-    assert(_loop->isOwner());
+    assert(_loop->isInEventLoop());
     socket.listen();
     serverChannel.setReadInterest();
   }
@@ -53,7 +53,7 @@ private:
 
   void handleRead()
   {
-    assert(_loop->isOwner());
+    assert(_loop->isInEventLoop());
 
     InetAddress peerAddr;
     int connfd = ::accept(socket.fd(), peerAddr.getSockAddr());

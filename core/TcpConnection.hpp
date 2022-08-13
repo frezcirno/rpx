@@ -1,7 +1,8 @@
 #ifndef __TCPCONNECTION_HPP__
 #define __TCPCONNECTION_HPP__
 
-#include "assert.h"
+#include <assert.h>
+#include <any>
 #include "Utils.hpp"
 #include "Socket.hpp"
 #include "StreamBuffer.hpp"
@@ -10,7 +11,7 @@
 
 class TcpConnection;
 typedef std::shared_ptr<TcpConnection> TcpConnectionPtr;
-typedef std::function<void(const TcpConnectionPtr&)> ConnectionCallback;
+typedef std::function<void(const TcpConnectionPtr&)> ConnectCallback;
 typedef std::function<void(const TcpConnectionPtr&, StreamBuffer*)> MessageCallback;
 typedef std::function<void(const TcpConnectionPtr&)> CloseCallback;
 typedef std::function<void(const TcpConnectionPtr&)> WriteCompleteCallback;
@@ -37,17 +38,57 @@ public:
     _socket->setKeepAlive(true);
   }
   ~TcpConnection() {}
+
+  int fd()
+  {
+    return _channel->fd();
+  }
+  const InetAddress& getPeerAddr() const
+  {
+    return _peerAddr;
+  }
+
   void write(const char* data, size_t len)
   {
-    assert(_loop->isOwner());
-    _writeBuffer.append(data, len);
-    if (!_channel->hasWriteInterest()) {
-      _channel->setWriteInterest();
+    assert(_loop->isInEventLoop());
+    ssize_t written;
+    size_t remaining = len;
+    if (!_channel->hasWriteInterest() && _writeBuffer.empty()) {
+      written = ::write(_channel->fd(), data, len);
+      if (written < 0) {
+        if (errno != EWOULDBLOCK) {
+          perror("write");
+          return;
+        }
+        written = 0;
+      } else {
+        remaining -= written;
+        if (remaining == 0) {
+          _loop->queueInLoop(std::bind(_writeCompleteCallback, shared_from_this()));
+          return;
+        }
+      }
+    }
+
+    if (remaining > 0) {
+      _writeBuffer.append(data + written, remaining);
+      if (!_channel->hasWriteInterest()) {
+        _channel->setWriteInterest();
+      }
     }
   }
   void write(const std::string& data)
   {
     write(data.data(), data.size());
+  }
+
+  std::any getUserData()
+  {
+    return _userData;
+  }
+  void setUserData(const std::any& userData)
+  {
+    _userData = userData;
   }
 
 private:
@@ -56,7 +97,7 @@ private:
   InetAddress _peerAddr;
   std::unique_ptr<Socket> _socket;
 
-  ConnectionCallback _connectionCallback;
+  ConnectCallback _connectCallback;
   MessageCallback _messageCallback;
   CloseCallback _closeCallback;
   WriteCompleteCallback _writeCompleteCallback;
@@ -64,13 +105,15 @@ private:
   StreamBuffer _readBuffer;
   StreamBuffer _writeBuffer;
 
+  std::any _userData;
+
   EventLoop* getLoop() const
   {
     return _loop;
   }
-  void setConnectionCallback(const ConnectionCallback& cb)
+  void setConnectCallback(const ConnectCallback& cb)
   {
-    _connectionCallback = cb;
+    _connectCallback = cb;
   }
   void setMessageCallback(const MessageCallback& cb)
   {
@@ -87,32 +130,33 @@ private:
 
   void connectEstablished()
   {
-    assert(_loop->isOwner());
-    std::cout << "connect established" << std::endl;
+    assert(_loop->isInEventLoop());
     _channel->tie(shared_from_this());
     _channel->setReadInterest();
 
-    _connectionCallback(shared_from_this());
+    _connectCallback(shared_from_this());
   }
 
-  void connectDestroyed()
+  void connectDestroyed(const CloseCallback& userCloseCallback)
   {
-    assert(_loop->isOwner());
-    std::cout << "connect destroyed" << std::endl;
+    assert(_loop->isInEventLoop());
     _channel->unsetAllInterest();
-    _connectionCallback(shared_from_this());
+    userCloseCallback(shared_from_this());
     _channel->remove();
   }
 
+  // Wrappers for the callbacks to be called from the event loop
   void handleRead()
   {
-    assert(_loop->isOwner());
+    assert(_loop->isInEventLoop());
     int rv = _readBuffer.readFd(_channel->fd());
     if (rv < 0) {
       if (errno == EAGAIN)
         return;
       handleError();
     } else if (rv == 0) {
+      // the peer has nothing more to send us
+      // we can safely close the connection
       handleClose();
     } else {
       _messageCallback(shared_from_this(), &_readBuffer);
@@ -121,7 +165,7 @@ private:
 
   void handleWrite()
   {
-    assert(_loop->isOwner());
+    assert(_loop->isInEventLoop());
     if (_channel->hasWriteEvent()) {
       ssize_t n = ::write(_channel->fd(), _writeBuffer.data(), _writeBuffer.size());
       if (n < 0) {
@@ -143,11 +187,10 @@ private:
 
   void handleClose()
   {
-    assert(_loop->isOwner());
+    assert(_loop->isInEventLoop());
     _channel->unsetAllInterest();
 
     TcpConnectionPtr guardThis(shared_from_this());
-    _connectionCallback(guardThis);
     // must be the last line
     _closeCallback(guardThis);
   }

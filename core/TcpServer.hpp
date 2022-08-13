@@ -13,34 +13,45 @@
 class TcpServer
 {
 public:
-  TcpServer(EventLoop* baseLoop, const InetAddress& listenAddr, bool reusePort)
+  TcpServer(EventLoop* baseLoop, const InetAddress& listenAddr, bool reusePort,
+            int threadCount = 12)
     : _baseLoop(baseLoop)
     , _addr(listenAddr)
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
-    , _pool(baseLoop, 12)
+    , _pool(baseLoop, threadCount)
   {
     _acceptor->setNewConnectionCallback(std::bind(
       &TcpServer::handleNewConnection, this, std::placeholders::_1, std::placeholders::_2));
   }
   ~TcpServer() {}
 
+  EventLoop* getBaseLoop() const
+  {
+    return _baseLoop;
+  }
+
   void start()
   {
     // make acceptor start listening
+    std::cout << "listening on " << _addr.toIpPort() << std::endl;
     _baseLoop->runInLoop(std::bind(&Acceptor::listen, _acceptor.get()));
   }
 
-  void setConnectionCallback(const ConnectionCallback& cb)
+  void setConnectCallback(const ConnectCallback& cb)
   {
-    _connectionCallback = cb;
+    _userConnectCallback = cb;
   }
   void setMessageCallback(const MessageCallback& cb)
   {
-    _messageCallback = cb;
+    _userMessageCallback = cb;
   }
   void setWriteCompleteCallback(const WriteCompleteCallback& cb)
   {
-    _writeCompleteCallback = cb;
+    _userWriteCompleteCallback = cb;
+  }
+  void setCloseCallback(const CloseCallback& cb)
+  {
+    _userCloseCallback = cb;
   }
 
 private:
@@ -48,30 +59,28 @@ private:
   InetAddress _addr;
   std::unique_ptr<Acceptor> _acceptor;
   EventLoopThreadPool _pool;
-  std::vector<TcpConnectionPtr> _connections;
+  std::unordered_map<int, TcpConnectionPtr> _connections;
 
   // default callbacks for created connections
-  ConnectionCallback _connectionCallback;
-  MessageCallback _messageCallback;
-  WriteCompleteCallback _writeCompleteCallback;
+  ConnectCallback _userConnectCallback;
+  MessageCallback _userMessageCallback;
+  WriteCompleteCallback _userWriteCompleteCallback;
+  CloseCallback _userCloseCallback;
 
   void handleNewConnection(int sockfd, const InetAddress& peerAddr)
   {
-    assert(_baseLoop->isOwner());
-    std::cout << "TcpServer::handleNewConnection [" << _addr.ip() << ":" << _addr.port()
-              << "] - new connection [" << peerAddr.ip() << ":" << peerAddr.port() << "]"
-              << std::endl;
+    assert(_baseLoop->isInEventLoop());
     EventLoop* ioLoop = _pool.getNextLoop();
     TcpConnectionPtr conn(new TcpConnection(ioLoop, sockfd, peerAddr));
-    _connections.push_back(conn);
-    // will be called soon
-    conn->setConnectionCallback(_connectionCallback);
-    conn->setMessageCallback(_messageCallback);
-    conn->setWriteCompleteCallback(_writeCompleteCallback);
+    _connections.insert({sockfd, conn});
+    conn->setConnectCallback(_userConnectCallback);
+    conn->setMessageCallback(_userMessageCallback);
+    conn->setWriteCompleteCallback(_userWriteCompleteCallback);
     conn->setCloseCallback(std::bind(&TcpServer::handleClose, this, std::placeholders::_1));
     ioLoop->runInLoop(std::bind(&TcpConnection::connectEstablished, conn));
   }
 
+  // user close callback wrapper
   void handleClose(const TcpConnectionPtr& conn)
   {
     _baseLoop->runInLoop(std::bind(&TcpServer::handleCloseInLoop, this, conn));
@@ -79,10 +88,11 @@ private:
 
   void handleCloseInLoop(const TcpConnectionPtr& conn)
   {
-    assert(_baseLoop->isOwner());
+    assert(_baseLoop->isInEventLoop());
+    _connections.erase(conn->fd());
 
     EventLoop* connLoop = conn->getLoop();
-    connLoop->queueInLoop(std::bind(&TcpConnection::connectDestroyed, conn));
+    connLoop->queueInLoop(std::bind(&TcpConnection::connectDestroyed, conn, _userCloseCallback));
   }
 };
 

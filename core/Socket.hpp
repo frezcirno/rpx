@@ -45,8 +45,12 @@ void listen(int fd)
 
 int accept(int fd, struct sockaddr_in* addr)
 {
-  socklen_t addrlen;
+  socklen_t addrlen = sizeof(*addr);
   int rv = ::accept(fd, reinterpret_cast<struct sockaddr*>(addr), &addrlen);
+  if (rv < 0) {
+    perror("accept");
+    abort();
+  }
   return rv;
 }
 
@@ -96,6 +100,10 @@ public:
   {
     return ntohs(_addr.sin_port);
   }
+  std::string toIpPort() const
+  {
+    return ip() + ":" + std::to_string(port());
+  }
   const struct sockaddr_in* getSockAddr() const
   {
     return &_addr;
@@ -122,7 +130,7 @@ public:
 
   ~Socket()
   {
-    close(_fd);
+    ::close(_fd);
   }
 
   int fd() const
