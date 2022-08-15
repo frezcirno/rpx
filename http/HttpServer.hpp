@@ -5,9 +5,10 @@
 #include "TcpServer.hpp"
 #include "HttpParser.hpp"
 
+typedef std::function<void(const HttpParser&, TcpConnectionPtr&)> HttpRequestCallback;
+
 class HttpServer
 {
-  typedef std::function<void(const HttpParser&, TcpConnectionPtr&)> HttpRequestCallback;
 
 public:
   HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum)

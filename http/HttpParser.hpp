@@ -10,10 +10,12 @@
 
 class HttpParser;
 
-typedef std::function<void(const HttpParser&)> RequestCallback;
 
-class HttpParser
+class HttpParser : noncopyable
 {
+private:
+  typedef std::function<void(const HttpParser&)> RequestCallback;
+
 public:
   HttpParser()
     : _headerComplete(0)
@@ -53,7 +55,7 @@ public:
   void reset()
   {
     _headerComplete = 0;
-    _url.clear();
+    _path.clear();
     _headers.clear();
     _body.clear();
     _currentHeader.clear();
@@ -71,9 +73,10 @@ public:
   {
     return llhttp_method_name(getMethod());
   }
-  const std::string& getUrl() const
+  const std::string& getPath() const
   {
-    return _url;
+    assert(_path.size());
+    return _path;
   }
   int getHttpMajor() const
   {
@@ -106,7 +109,7 @@ private:
   llhttp_t _parser;
   llhttp_settings_t _settings;
   std::unordered_map<std::string, std::string> _headers;
-  std::string _url;
+  std::string _path;
   std::string _currentHeader;
   std::string _body;
   int _headerComplete;
@@ -124,7 +127,7 @@ private:
   static int on_url(llhttp_t* parser, const char* at, size_t length)
   {
     HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_url.assign(at, length);
+    httpParser->_path.assign(at, length);
     return 0;
   }
   static int on_header_field(llhttp_t* parser, const char* at, size_t length)

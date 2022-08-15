@@ -48,7 +48,7 @@ public:
     return _peerAddr;
   }
 
-  void write(const char* data, size_t len)
+  int write(const char* data, size_t len)
   {
     assert(_loop->isInEventLoop());
     ssize_t written;
@@ -58,28 +58,43 @@ public:
       if (written < 0) {
         if (errno != EWOULDBLOCK) {
           perror("write");
-          return;
+          abort();
         }
         written = 0;
       } else {
         remaining -= written;
         if (remaining == 0) {
           _loop->queueInLoop(std::bind(_writeCompleteCallback, shared_from_this()));
-          return;
+          return len;
         }
       }
     }
 
     if (remaining > 0) {
       _writeBuffer.append(data + written, remaining);
-      if (!_channel->hasWriteInterest()) {
+      if (!_channel->hasWriteInterest())
         _channel->setWriteInterest();
-      }
     }
+    return len;
   }
-  void write(const std::string& data)
+  int write(const std::string& data)
   {
-    write(data.data(), data.size());
+    return write(data.data(), data.size());
+  }
+  int writeFile(const std::string& filename)
+  {
+    int total = 0;
+    FILE* fp = fopen(filename.c_str(), "r");
+    if (fp == NULL)
+      return -1;
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+      total += n;
+      write(buf, n);
+    }
+    fclose(fp);
+    return total;
   }
 
   std::any getUserData()
