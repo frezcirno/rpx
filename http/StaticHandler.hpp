@@ -16,34 +16,37 @@ public:
   {}
   ~StaticHandler() {}
 
-  void handleRequest(const HttpParser& request, TcpConnectionPtr& conn)
+  void handleRequest(const HttpParser& request, HttpContext& conn)
   {
-    std::string filePath;
-    if (_alias) {
-      std::string path = request.getPath();
-      if (path.find(_location) == 0) {
-        path = path.substr(_location.size());
-      }
-      if (path.empty() || path[0] != '/') {
-        path = "/" + path;
-      }
-      filePath = _rootPath + path;
-    } else {
-      filePath = _rootPath + request.getPath();
-    }
-    std::cout << "filePath: " << filePath << std::endl;
-    if (!std::ifstream(filePath).good()) {
-      conn->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    std::string path = request.getPath();
+    if (path.find("..") != std::string::npos) {
+      conn.sendError(HttpStatus::FORBIDDEN);
       return;
     }
+    std::string filePath;
+    if (_alias) {
+      if (path.find(_location) == 0)
+        path = path.substr(_location.size());
+      if (path.empty() || path[0] != '/')
+        path = "/" + path;
+      filePath = _rootPath + path;
+    } else {
+      filePath = _rootPath + path;
+    }
+    if (filePath.back() == '/')
+      filePath += "index.html";
     std::ifstream ifs(filePath, std::ios::binary);
     if (!ifs) {
-      conn->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+      conn.sendError(HttpStatus::NOT_FOUND);
       return;
     }
     std::string content(std::istreambuf_iterator<char>(ifs), {});
-    conn->write("HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(content.size()) +
-                "\r\n\r\n" + content);
+    conn.startResponse(HttpStatus::OK);
+    conn.sendHeader("Content-Type", "text/html");
+    conn.sendHeader("Content-Length", std::to_string(content.size()));
+    conn.endHeaders();
+    conn.sendContent(content);
+    conn.shutdown();
     ifs.close();
   }
 

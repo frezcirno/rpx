@@ -31,10 +31,10 @@ public:
     , _readBuffer(4096)
     , _writeBuffer(4096, 100)
   {
-    _channel->setReadCallback(std::bind(&TcpConnection::handleRead, this));
-    _channel->setWriteCallback(std::bind(&TcpConnection::handleWrite, this));
-    _channel->setCloseCallback(std::bind(&TcpConnection::handleClose, this));
-    _channel->setErrorCallback(std::bind(&TcpConnection::handleError, this));
+    _channel->setReadCallback([this] { handleRead(); });
+    _channel->setWriteCallback([this] { handleWrite(); });
+    _channel->setCloseCallback([this] { handleClose(); });
+    _channel->setErrorCallback([this] { handleError(); });
     _socket->setKeepAlive(true);
   }
   ~TcpConnection() {}
@@ -64,7 +64,7 @@ public:
       } else {
         remaining -= written;
         if (remaining == 0) {
-          _loop->queueInLoop(std::bind(_writeCompleteCallback, shared_from_this()));
+          _loop->queueInLoop([this] { _writeCompleteCallback(shared_from_this()); });
           return len;
         }
       }
@@ -95,6 +95,16 @@ public:
     }
     fclose(fp);
     return total;
+  }
+
+  void shutdown()
+  {
+    _loop->runInLoop([this] { shutdownInLoop(); });
+  }
+  void shutdownInLoop()
+  {
+    assert(_loop->isInEventLoop());
+    _socket->shutdownWrite();
   }
 
   std::any getUserData()
@@ -213,10 +223,11 @@ private:
   void handleError()
   {
     int rv = ::getSocketError(_channel->fd());
-    printf("TcpConnection::handleError [%s:%d] - SO_ERROR = %d\n",
+    printf("TcpConnection::handleError [%s:%d] - SO_ERROR = %d, %s\n",
            _peerAddr.ip().c_str(),
            _peerAddr.port(),
-           rv);
+           rv,
+           strerror(rv));
   }
 };
 

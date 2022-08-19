@@ -20,8 +20,8 @@ public:
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
     , _pool(baseLoop, threadCount)
   {
-    _acceptor->setNewConnectionCallback(std::bind(
-      &TcpServer::handleNewConnection, this, std::placeholders::_1, std::placeholders::_2));
+    _acceptor->setNewConnectionCallback(
+      [this](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
   }
   ~TcpServer() {}
 
@@ -34,7 +34,7 @@ public:
   {
     // make acceptor start listening
     std::cout << "listening on " << _addr.toIpPort() << std::endl;
-    _baseLoop->runInLoop(std::bind(&Acceptor::listen, _acceptor.get()));
+    _baseLoop->runInLoop([this] { _acceptor->listen(); });
   }
 
   void setConnectCallback(const ConnectCallback& cb)
@@ -76,14 +76,14 @@ private:
     conn->setConnectCallback(_userConnectCallback);
     conn->setMessageCallback(_userMessageCallback);
     conn->setWriteCompleteCallback(_userWriteCompleteCallback);
-    conn->setCloseCallback(std::bind(&TcpServer::handleClose, this, std::placeholders::_1));
-    ioLoop->runInLoop(std::bind(&TcpConnection::connectEstablished, conn));
+    conn->setCloseCallback([this](const TcpConnectionPtr& conn) { handleClose(conn); });
+    ioLoop->runInLoop([conn] { conn->connectEstablished(); });
   }
 
   // user close callback wrapper
   void handleClose(const TcpConnectionPtr& conn)
   {
-    _baseLoop->runInLoop(std::bind(&TcpServer::handleCloseInLoop, this, conn));
+    _baseLoop->runInLoop([this, conn] { handleCloseInLoop(conn); });
   }
 
   void handleCloseInLoop(const TcpConnectionPtr& conn)
@@ -92,7 +92,7 @@ private:
     _connections.erase(conn->fd());
 
     EventLoop* connLoop = conn->getLoop();
-    connLoop->queueInLoop(std::bind(&TcpConnection::connectDestroyed, conn, _userCloseCallback));
+    connLoop->queueInLoop([this, conn] { conn->connectDestroyed(_userCloseCallback); });
   }
 };
 

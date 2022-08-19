@@ -8,7 +8,7 @@ CXXHEADERS := $(shell find $(SOURCEDIR) -name '*.hpp')
 all: rpx
 
 rpx: rpx.cpp $(CXXHEADERS)
-	$(CC) $< -o $@ -pthread -O2 $(INCLUDE) $(LDFLAGS) --std=c++17 -g -fsanitize=thread
+	$(CC) $< -o $@ -O2 $(INCLUDE) $(LDFLAGS) --std=c++17 -g -fsanitize=thread
 	-rm -f libllhttp.so
 	ln -s lib/llhttp/libllhttp.so libllhttp.so
 

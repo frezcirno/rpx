@@ -21,7 +21,7 @@ public:
     for (int i = 0; i < numThreads; i++) {
       _ready.store(0);
       // one eventloop per thread
-      _pool.addTask(std::bind(&EventLoopThreadPool::eventloopTask, this, &_loops[i]));
+      _pool.addTask([this, i] { eventloopTask(&_loops[i]); });
       // wait until the eventloop is ready
       while (!_ready.load())
         continue;

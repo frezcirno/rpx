@@ -313,7 +313,7 @@ public:
     , _wakeupFd(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC))
     , _wakeupChannel(new Channel(this, _wakeupFd))
   {
-    _wakeupChannel->setReadCallback(std::bind(&EventLoop::wakeupRead, this));
+    _wakeupChannel->setReadCallback([this] { this->wakeupRead(); });
     _wakeupChannel->setReadInterest();
   }
   ~EventLoop()

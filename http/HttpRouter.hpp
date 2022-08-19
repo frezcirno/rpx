@@ -16,7 +16,7 @@ class HttpHandler : noncopyable
 {
 public:
   virtual ~HttpHandler() {}
-  virtual void handleRequest(const HttpParser& request, TcpConnectionPtr& conn) = 0;
+  virtual void handleRequest(const HttpParser& request, HttpContext& ctx) = 0;
 };
 
 class HttpRouter : noncopyable
@@ -59,9 +59,9 @@ private:
       }
       return rc;
     }
-    void handleRequest(const HttpParser& request, TcpConnectionPtr& conn)
+    void handleRequest(const HttpParser& request, HttpContext& ctx)
     {
-      _handler->handleRequest(request, conn);
+      _handler->handleRequest(request, ctx);
     }
 
   private:
@@ -79,15 +79,16 @@ public:
     _routes.emplace_back(pattern, handler);
   }
 
-  void handleRequest(const HttpParser& request, TcpConnectionPtr& conn)
+  void handleRequest(const HttpParser& request, HttpContext& ctx)
   {
+    const auto& path = request.getPath();
     for (auto& route : _routes) {
-      if (route.match(request.getPath())) {
-        route.handleRequest(request, conn);
+      if (route.match(path)) {
+        route.handleRequest(request, ctx);
         return;
       }
     }
-    conn->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    ctx.sendError(404);
   }
 
 private:

@@ -4,8 +4,9 @@
 #include "TcpConnection.hpp"
 #include "TcpServer.hpp"
 #include "HttpParser.hpp"
+#include "HttpContext.hpp"
 
-typedef std::function<void(const HttpParser&, TcpConnectionPtr&)> HttpRequestCallback;
+typedef std::function<void(const HttpParser&, HttpContext&)> HttpRequestCallback;
 
 class HttpServer
 {
@@ -14,12 +15,12 @@ public:
   HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum)
     : _server(loop, listenAddr, reusePort, threadNum)
   {
-    _server.setConnectCallback(std::bind(&HttpServer::initConnection, this, std::placeholders::_1));
-    _server.setCloseCallback(std::bind(&HttpServer::deleteConnection, this, std::placeholders::_1));
+    _server.setConnectCallback([this](const TcpConnectionPtr& conn) { initConnection(conn); });
+    _server.setCloseCallback([this](const TcpConnectionPtr& conn) { deleteConnection(conn); });
     _server.setMessageCallback(
-      std::bind(&HttpServer::handleMessage, this, std::placeholders::_1, std::placeholders::_2));
+      [this](const TcpConnectionPtr& conn, StreamBuffer* buffer) { handleMessage(conn, buffer); });
     _server.setWriteCompleteCallback(
-      std::bind(&HttpServer::writeCompleteCallback, this, std::placeholders::_1));
+      [this](const TcpConnectionPtr& conn) { writeCompleteCallback(conn); });
   }
   ~HttpServer() {}
 
@@ -44,7 +45,10 @@ private:
   void initConnection(const TcpConnectionPtr& conn)
   {
     HttpParser* parser = new HttpParser();
-    parser->setRequestCallback(std::bind(_requestCallback, std::placeholders::_1, conn));
+    parser->setRequestCallback([this, conn](const HttpParser& parser) {
+      auto ctx = HttpContext(conn);
+      _requestCallback(parser, ctx);
+    });
     conn->setUserData(parser);
   }
 
