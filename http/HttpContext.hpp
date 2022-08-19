@@ -55,9 +55,9 @@ public:
     _conn->write("\r\n", 2);
   }
 
-  void endHeaders()
+  int endHeaders()
   {
-    _conn->write("\r\n", 2);
+    return _conn->write("\r\n", 2);
   }
 
   void setWriteCompleteCallback(const HttpWriteCompleteCallback& cb)
@@ -65,14 +65,14 @@ public:
     writeCompleteCallback = cb;
   }
 
-  void send(const std::string& contents)
+  int send(const std::string& contents)
   {
-    _conn->write(contents);
+    return _conn->write(contents);
   }
 
-  void send(const char* contents, size_t len)
+  int send(const char* contents, size_t len)
   {
-    _conn->write(contents, len);
+    return _conn->write(contents, len);
   }
 
   void shutdown()

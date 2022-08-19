@@ -28,8 +28,8 @@ public:
     , _channel(new Channel(loop, sockfd))
     , _peerAddr(peerAddr)
     , _socket(new Socket(sockfd))
-    , _readBuffer(4096)
-    , _writeBuffer(4096, 100)
+    , _readBuffer(1024)
+    , _writeBuffer(1024, 20)
   {
     _channel->setReadCallback([this] { handleRead(); });
     _channel->setWriteCallback([this] { handleWrite(); });
@@ -73,8 +73,10 @@ public:
     if (!_channel->hasWriteInterest() && _writeBuffer.empty()) {
       written = ::write(_channel->fd(), data, len);
       if (written < 0) {
-        if (errno != EWOULDBLOCK)
+        if (errno != EWOULDBLOCK) {
           perror("write");
+          return written;
+        }
         written = 0;
       } else {
         remaining -= written;

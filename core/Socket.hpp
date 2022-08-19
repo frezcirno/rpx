@@ -40,7 +40,10 @@ void bind(int fd, const struct sockaddr_in* addr)
 void listen(int fd)
 {
   int rv = ::listen(fd, SOMAXCONN);
-  assert(rv == 0);
+  if (rv < 0) {
+    perror("listen");
+    abort();
+  }
 }
 
 int accept(int fd, struct sockaddr_in* addr)
@@ -147,13 +150,13 @@ public:
   }
   int accept(InetAddress* peeraddr)
   {
-    int connfd = ::accept(_fd, peeraddr->getSockAddr());
-    assert(connfd >= 0);
-    return connfd;
+    return ::accept(_fd, peeraddr->getSockAddr());
   }
   void shutdownWrite()
   {
-    ::shutdown(_fd, SHUT_WR);
+    int rv = ::shutdown(_fd, SHUT_WR);
+    if (rv < 0)
+      perror("shutdownWrite");
   }
   void setReuseAddr(bool on)
   {

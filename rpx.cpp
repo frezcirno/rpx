@@ -18,8 +18,12 @@ void handle(HttpContext& ctx)
 
 int main(int argc, char const* argv[])
 {
+  int threadNum = 1;
+  if (argc >= 2)
+    threadNum = atoi(argv[1]);
+
   EventLoop loop;
-  HttpServer server(&loop, InetAddress(8080), true, 24);
+  HttpServer server(&loop, InetAddress(8080), true, threadNum);
   HttpRouter router;
   router.addRoute("\\/etc", new StaticHandler("/etc", "/etc", true));
   router.addRoute("\\/", new StaticHandler("/", "."));

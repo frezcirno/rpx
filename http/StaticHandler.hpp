@@ -50,7 +50,9 @@ public:
     char buf[1024];
     while (ifs->good()) {
       ifs->read(buf, sizeof(buf));
-      ctx.send(buf, ifs->gcount());
+      int rv = ctx.send(buf, ifs->gcount());
+      if (rv < 0)
+        break;
     }
     ctx.shutdown();
   }
