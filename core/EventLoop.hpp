@@ -11,6 +11,8 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <mutex>
+#include <condition_variable>
 #include "Utils.hpp"
 #include "ThreadPool.hpp"
 
@@ -307,7 +309,7 @@ public:
   EventLoop()
     : _poller(new Poller(this))
     , running(true)
-    , _ownerThreadId(::tid())
+    , _ownerThreadId(std::this_thread::get_id())
     , _wakeupFd(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC))
     , _wakeupChannel(new Channel(this, _wakeupFd))
   {
@@ -323,7 +325,7 @@ public:
 
   bool isInEventLoop()
   {
-    return _ownerThreadId == ::gettid();
+    return _ownerThreadId == std::this_thread::get_id();
   }
 
   void loop()
@@ -336,7 +338,7 @@ public:
       std::vector<Task> tasks;
       _callingPendingTasks = true;
       {
-        MutexGuard lock(_mutex);
+        std::lock_guard lock(_mutex);
         tasks.swap(_pendingTask);
       }
       for (auto task : tasks)
@@ -363,7 +365,7 @@ public:
   void queueInLoop(Task cb)
   {
     {
-      MutexGuard lock(_mutex);
+      std::lock_guard lock(_mutex);
       _pendingTask.push_back(std::move(cb));
     }
 
@@ -386,12 +388,12 @@ private:
   std::vector<Channel*> _activeChannels;
   std::unique_ptr<Poller> _poller;
   bool running;
-  const pid_t _ownerThreadId;
+  const std::thread::id _ownerThreadId;
 
   int _wakeupFd;
   std::unique_ptr<Channel> _wakeupChannel;
 
-  mutable MutexLock _mutex;
+  mutable std::mutex _mutex;
   std::vector<Task> _pendingTask;
   bool _callingPendingTasks;
 

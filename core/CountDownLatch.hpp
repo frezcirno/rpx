@@ -1,45 +1,44 @@
 #ifndef __COUNTDOWNLATCH_HPP__
 #define __COUNTDOWNLATCH_HPP__
 
-#include "Condition.hpp"
-#include "MutexLock.hpp"
-#include "Utils.hpp"
 #include <assert.h>
+#include <mutex>
+#include <condition_variable>
+#include "Utils.hpp"
 
 class CountDownLatch : noncopyable
 {
 public:
   explicit CountDownLatch(int count)
     : count(count)
-    , cond(mutex)
   {
     assert(count > 0);
   }
   ~CountDownLatch() {}
   void wait()
   {
-    MutexGuard lock(mutex);
+    std::unique_lock lock(mutex);
     while (count > 0)
-      cond.wait();
+      cond.wait(lock);
   }
   void countDown()
   {
-    MutexGuard lock(mutex);
+    std::lock_guard lock(mutex);
     --count;
     if (count == 0) {
-      cond.notifyAll();
+      cond.notify_all();
     }
   }
   int getCount()
   {
-    MutexGuard lock(mutex);
+    std::lock_guard lock(mutex);
     return count;
   }
 
 private:
   int count;
-  MutexLock mutex;
-  Condition cond;
+  std::mutex mutex;
+  std::condition_variable cond;
 };
 
 #endif
