@@ -16,7 +16,7 @@ class HttpHandler : noncopyable
 {
 public:
   virtual ~HttpHandler() {}
-  virtual void handleRequest(const HttpParser& request, HttpContext& ctx) = 0;
+  virtual void handleRequest(HttpContext& ctx) = 0;
 };
 
 class HttpRouter : noncopyable
@@ -59,9 +59,9 @@ private:
       }
       return rc;
     }
-    void handleRequest(const HttpParser& request, HttpContext& ctx)
+    void handleRequest(HttpContext& ctx)
     {
-      _handler->handleRequest(request, ctx);
+      _handler->handleRequest(ctx);
     }
 
   private:
@@ -79,12 +79,12 @@ public:
     _routes.emplace_back(pattern, handler);
   }
 
-  void handleRequest(const HttpParser& request, HttpContext& ctx)
+  void handleRequest(HttpContext& ctx)
   {
-    const auto& path = request.getPath();
+    const auto& path = ctx.parser.getPath();
     for (auto& route : _routes) {
       if (route.match(path)) {
-        route.handleRequest(request, ctx);
+        route.handleRequest(ctx);
         return;
       }
     }

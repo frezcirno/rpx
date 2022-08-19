@@ -48,6 +48,23 @@ public:
     return _peerAddr;
   }
 
+  void setConnectCallback(const ConnectCallback& cb)
+  {
+    _connectCallback = cb;
+  }
+  void setMessageCallback(const MessageCallback& cb)
+  {
+    _messageCallback = cb;
+  }
+  void setCloseCallback(const CloseCallback& cb)
+  {
+    _closeCallback = cb;
+  }
+  void setWriteCompleteCallback(const WriteCompleteCallback& cb)
+  {
+    _writeCompleteCallback = cb;
+  }
+
   int write(const char* data, size_t len)
   {
     assert(_loop->isInEventLoop());
@@ -56,15 +73,17 @@ public:
     if (!_channel->hasWriteInterest() && _writeBuffer.empty()) {
       written = ::write(_channel->fd(), data, len);
       if (written < 0) {
-        if (errno != EWOULDBLOCK) {
+        if (errno != EWOULDBLOCK)
           perror("write");
-          abort();
-        }
         written = 0;
       } else {
         remaining -= written;
         if (remaining == 0) {
-          _loop->queueInLoop([this] { _writeCompleteCallback(shared_from_this()); });
+          if (_writeCompleteCallback)
+            _loop->queueInLoop([this] {
+              if (_writeCompleteCallback)
+                _writeCompleteCallback(shared_from_this());
+            });
           return len;
         }
       }
@@ -81,21 +100,6 @@ public:
   {
     return write(data.data(), data.size());
   }
-  int writeFile(const std::string& filename)
-  {
-    int total = 0;
-    FILE* fp = fopen(filename.c_str(), "r");
-    if (fp == NULL)
-      return -1;
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
-      total += n;
-      write(buf, n);
-    }
-    fclose(fp);
-    return total;
-  }
 
   void shutdown()
   {
@@ -107,7 +111,7 @@ public:
     _socket->shutdownWrite();
   }
 
-  std::any getUserData()
+  std::any& getUserData()
   {
     return _userData;
   }
@@ -135,22 +139,6 @@ private:
   EventLoop* getLoop() const
   {
     return _loop;
-  }
-  void setConnectCallback(const ConnectCallback& cb)
-  {
-    _connectCallback = cb;
-  }
-  void setMessageCallback(const MessageCallback& cb)
-  {
-    _messageCallback = cb;
-  }
-  void setCloseCallback(const CloseCallback& cb)
-  {
-    _closeCallback = cb;
-  }
-  void setWriteCompleteCallback(const WriteCompleteCallback& cb)
-  {
-    _writeCompleteCallback = cb;
   }
 
   void connectEstablished()
@@ -202,9 +190,10 @@ private:
         if (_writeBuffer.empty()) {
           _channel->unsetWriteInterest();
           if (_writeCompleteCallback)
-            _writeCompleteCallback(shared_from_this());
-        } else {
-          _channel->setWriteInterest();
+            _loop->queueInLoop([this] {
+              if (_writeCompleteCallback)
+                _writeCompleteCallback(shared_from_this());
+            });
         }
       }
     }
@@ -216,6 +205,7 @@ private:
     _channel->unsetAllInterest();
 
     TcpConnectionPtr guardThis(shared_from_this());
+    _writeCompleteCallback = NULL;
     // must be the last line
     _closeCallback(guardThis);
   }

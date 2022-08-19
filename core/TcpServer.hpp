@@ -1,6 +1,7 @@
 #ifndef __TCPSERVER_HPP__
 #define __TCPSERVER_HPP__
 
+#include <signal.h>
 #include <iostream>
 #include <unordered_map>
 #include "Socket.hpp"
@@ -20,6 +21,9 @@ public:
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
     , _pool(baseLoop, threadCount)
   {
+    // Ignore SIGPIPE
+    static auto init = signal(SIGPIPE, SIG_IGN);
+
     _acceptor->setNewConnectionCallback(
       [this](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
   }

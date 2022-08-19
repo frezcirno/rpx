@@ -3,14 +3,12 @@
 
 #include "TcpConnection.hpp"
 #include "TcpServer.hpp"
-#include "HttpParser.hpp"
 #include "HttpContext.hpp"
 
-typedef std::function<void(const HttpParser&, HttpContext&)> HttpRequestCallback;
+typedef std::function<void(HttpContext&)> HttpRequestCallback;
 
 class HttpServer
 {
-
 public:
   HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum)
     : _server(loop, listenAddr, reusePort, threadNum)
@@ -44,24 +42,21 @@ private:
 
   void initConnection(const TcpConnectionPtr& conn)
   {
-    HttpParser* parser = new HttpParser();
-    parser->setRequestCallback([this, conn](const HttpParser& parser) {
-      auto ctx = HttpContext(conn);
-      _requestCallback(parser, ctx);
-    });
-    conn->setUserData(parser);
+    HttpContext* ctx = new HttpContext(conn);
+    ctx->parser.setRequestCallback([this, ctx](const HttpParser&) { _requestCallback(*ctx); });
+    conn->setUserData(ctx);
   }
 
   void deleteConnection(const TcpConnectionPtr& conn)
   {
-    HttpParser* parser = std::any_cast<HttpParser*>(conn->getUserData());
-    delete parser;
+    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
+    delete ctx;
   }
 
   void handleMessage(const TcpConnectionPtr& conn, StreamBuffer* buffer)
   {
-    HttpParser* parser = std::any_cast<HttpParser*>(conn->getUserData());
-    parser->advance(buffer->data(), buffer->size());
+    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
+    ctx->parser.advance(buffer->data(), buffer->size());
     buffer->popFront();
   }
 

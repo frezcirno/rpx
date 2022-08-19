@@ -16,11 +16,11 @@ public:
   {}
   ~StaticHandler() {}
 
-  void handleRequest(const HttpParser& request, HttpContext& conn)
+  void handleRequest(HttpContext& ctx)
   {
-    std::string path = request.getPath();
+    std::string path = ctx.parser.getPath();
     if (path.find("..") != std::string::npos) {
-      conn.sendError(HttpStatus::FORBIDDEN);
+      ctx.sendError(HttpStatus::FORBIDDEN);
       return;
     }
     std::string filePath;
@@ -35,19 +35,39 @@ public:
     }
     if (filePath.back() == '/')
       filePath += "index.html";
-    std::ifstream ifs(filePath, std::ios::binary);
+    std::shared_ptr<std::ifstream> ifs(new std::ifstream(filePath, std::ios::binary));
     if (!ifs) {
-      conn.sendError(HttpStatus::NOT_FOUND);
+      ctx.sendError(HttpStatus::NOT_FOUND);
       return;
     }
-    std::string content(std::istreambuf_iterator<char>(ifs), {});
-    conn.startResponse(HttpStatus::OK);
-    conn.sendHeader("Content-Type", "text/html");
-    conn.sendHeader("Content-Length", std::to_string(content.size()));
-    conn.endHeaders();
-    conn.sendContent(content);
-    conn.shutdown();
-    ifs.close();
+    size_t fileSize = ifs->seekg(0, std::ios::end).tellg();
+    ifs->seekg(0, std::ios::beg);
+    ctx.startResponse(HttpStatus::OK);
+    ctx.sendHeader("Content-Type", "text/html");
+    ctx.sendHeader("Content-Length", std::to_string(fileSize));
+    ctx.endHeaders();
+    // ctx.setWriteCompleteCallback([ifs](HttpContext& ctx) { sendMore(ctx, ifs); });
+    char buf[1024];
+    while (ifs->good()) {
+      ifs->read(buf, sizeof(buf));
+      ctx.send(buf, ifs->gcount());
+    }
+    ctx.shutdown();
+  }
+
+  static void sendMore(HttpContext& ctx, std::shared_ptr<std::ifstream> ifs)
+  {
+    char buf[1024];
+    if (ifs->good()) {
+      ifs->read(buf, sizeof buf);
+      size_t readCount = ifs->gcount();
+      if (readCount > 0) {
+        ctx.send(buf, readCount);
+      }
+      return;
+    }
+    ctx.setWriteCompleteCallback(NULL);
+    ctx.shutdown();
   }
 
 private:

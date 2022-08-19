@@ -11,6 +11,11 @@
 #include "HttpRouter.hpp"
 #include "StaticHandler.hpp"
 
+void handle(HttpContext& ctx)
+{
+  ctx.sendError(NOT_IMPLEMENTED);
+}
+
 int main(int argc, char const* argv[])
 {
   EventLoop loop;
@@ -18,8 +23,7 @@ int main(int argc, char const* argv[])
   HttpRouter router;
   router.addRoute("\\/etc", new StaticHandler("/etc", "/etc", true));
   router.addRoute("\\/", new StaticHandler("/", "."));
-  server.setRequestCallback(
-    [&router](const HttpParser& req, HttpContext& ctx) { router.handleRequest(req, ctx); });
+  server.setRequestCallback([&router](HttpContext& ctx) { router.handleRequest(ctx); });
   server.start();
   loop.loop();
   return 0;
