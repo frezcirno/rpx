@@ -14,12 +14,12 @@
 class TcpServer
 {
 public:
-  TcpServer(EventLoop* baseLoop, const InetAddress& listenAddr, bool reusePort,
-            int threadCount = 12)
+  TcpServer(EventLoop* baseLoop, const InetAddress& listenAddr, bool reusePort, int threadCount,
+            ThreadInitCallback cb = ThreadInitCallback())
     : _baseLoop(baseLoop)
     , _addr(listenAddr)
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
-    , _pool(baseLoop, threadCount)
+    , _pool(baseLoop, threadCount, cb)
   {
     // Ignore SIGPIPE
     static auto init = signal(SIGPIPE, SIG_IGN);

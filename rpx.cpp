@@ -25,8 +25,9 @@ int main(int argc, char const* argv[])
   EventLoop loop;
   HttpServer server(&loop, InetAddress(8080), true, threadNum);
   HttpRouter router;
-  router.addRoute("\\/etc", new StaticHandler("/etc", "/etc", true));
-  router.addRoute("\\/", new StaticHandler("/", "."));
+  router.addRoute("\\/a", new StaticHandler("/a", "./static/a", true));
+  router.addRoute("\\/b", new StaticHandler("/b", "./static/b", true));
+  router.addRoute("\\/c", new StaticHandler("/c", "./static/c", true));
   server.setRequestCallback([&router](HttpContext& ctx) { router.handleRequest(ctx); });
   server.start();
   loop.loop();

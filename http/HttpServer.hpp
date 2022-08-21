@@ -10,8 +10,9 @@ typedef std::function<void(HttpContext&)> HttpRequestCallback;
 class HttpServer
 {
 public:
-  HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum)
-    : _server(loop, listenAddr, reusePort, threadNum)
+  HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum,
+             ThreadInitCallback cb = ThreadInitCallback())
+    : _server(loop, listenAddr, reusePort, threadNum, cb)
   {
     _server.setConnectCallback([this](const TcpConnectionPtr& conn) { initConnection(conn); });
     _server.setCloseCallback([this](const TcpConnectionPtr& conn) { deleteConnection(conn); });

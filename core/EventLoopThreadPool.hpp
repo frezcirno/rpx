@@ -8,11 +8,13 @@
 #include "ThreadPool.hpp"
 #include "EventLoop.hpp"
 
+typedef std::function<void(EventLoop*)> ThreadInitCallback;
 
 class EventLoopThreadPool
 {
 public:
-  EventLoopThreadPool(EventLoop* baseLoop, int numThreads)
+  EventLoopThreadPool(EventLoop* baseLoop, int numThreads,
+                      ThreadInitCallback cb = ThreadInitCallback())
     : _baseLoop(baseLoop)
     , _pool(numThreads)
     , _cnt(0)
@@ -21,7 +23,7 @@ public:
     for (int i = 0; i < numThreads; i++) {
       _ready.store(0);
       // one eventloop per thread
-      _pool.addTask([this, i] { eventloopTask(&_loops[i]); });
+      _pool.addTask([this, i, cb] { eventloopTask(&_loops[i], cb); });
       // wait until the eventloop is ready
       while (!_ready.load())
         continue;
@@ -46,11 +48,13 @@ private:
   std::atomic<int> _ready;
   int _cnt;
 
-  void eventloopTask(EventLoop** ret)
+  void eventloopTask(EventLoop** ret, ThreadInitCallback cb)
   {
     EventLoop loop;
     *ret = &loop;
     _ready.store(1);
+    if (cb)
+      cb(&loop);
     loop.loop();
   }
 };

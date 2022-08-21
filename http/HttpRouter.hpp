@@ -1,13 +1,11 @@
 #ifndef __ROUTER_HPP__
 #define __ROUTER_HPP__
 
-#define PCRE2_CODE_UNIT_WIDTH 8
-
 #include <memory>
 #include <string>
 #include <functional>
 #include <unordered_map>
-#include <pcre2.h>
+#include <pcre.h>
 #include "HttpParser.hpp"
 #include "TcpConnection.hpp"
 #include "HttpServer.hpp"
@@ -22,42 +20,50 @@ public:
 class HttpRouter : noncopyable
 {
 private:
-  class Route
+  // Route: move-only type
+  class Route : noncopyable
   {
   public:
-    Route(const std::string& pattern, HttpHandler* handler)
+    Route(std::string&& pattern, HttpHandler* handler)
       : _handler(handler)
     {
-      int errcode;
-      size_t erroffset;
-      _pcre = pcre2_compile_8(
-        (PCRE2_SPTR8)pattern.c_str(), pattern.size(), 0, &errcode, &erroffset, NULL);
+      const char* errptr;
+      int erroffset;
+      _pcre = pcre_compile(pattern.c_str(), 0, &errptr, &erroffset, NULL);
       if (_pcre == NULL) {
-        PCRE2_UCHAR buffer[256];
-        pcre2_get_error_message(errcode, buffer, sizeof(buffer));
+        std::cout << "pcre_compile error: " << errptr << std::endl;
         abort();
       }
-      _match_data = pcre2_match_data_create_from_pattern(_pcre, NULL);
     }
     ~Route()
     {
-      pcre2_match_data_free(_match_data);
-      pcre2_code_free_8(_pcre);
+      if (_pcre)
+        pcre_free(_pcre);
     }
-    Route(Route&&) = default;
-    Route& operator=(Route&&) = default;
-
+    Route(Route&& other)
+      : _handler(other._handler)
+      , _pcre(other._pcre)
+    {
+      other._pcre = NULL;
+    }
+    Route& operator=(Route&& other)
+    {
+      _handler = other._handler;
+      _pcre = other._pcre;
+      other._pcre = NULL;
+      return *this;
+    }
     bool match(const std::string& url) const
     {
-      PCRE2_SPTR8 url_ptr = (PCRE2_SPTR8)url.c_str();
-      int rc = pcre2_match_8(_pcre, url_ptr, url.size(), 0, PCRE2_ANCHORED, _match_data, NULL);
+      int ovector[3];
+      int rc = pcre_exec(_pcre, NULL, url.c_str(), url.size(), 0, 0, ovector, 3);
       if (rc < 0) {
-        if (rc == PCRE2_ERROR_NOMATCH)
+        if (rc == PCRE_ERROR_NOMATCH)
           return false;
         printf("pcre match error: %d\n", rc);
         abort();
       }
-      return rc;
+      return true;
     }
     void handleRequest(HttpContext& ctx)
     {
@@ -65,18 +71,17 @@ private:
     }
 
   private:
-    pcre2_code_8* _pcre;
-    pcre2_match_data_8* _match_data;
-    std::unique_ptr<HttpHandler> _handler;
+    pcre* _pcre;
+    std::shared_ptr<HttpHandler> _handler;
   };
 
 public:
   HttpRouter() {}
   ~HttpRouter() {}
 
-  void addRoute(const std::string& pattern, HttpHandler* handler)
+  void addRoute(std::string&& pattern, HttpHandler* handler)
   {
-    _routes.emplace_back(pattern, handler);
+    _routes.emplace_back(std::move(pattern), handler);
   }
 
   void handleRequest(HttpContext& ctx)

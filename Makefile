@@ -1,7 +1,7 @@
 
 CC = g++
 INCLUDE += -Icore -Ihttp -Ilib/llhttp
-LDFLAGS += -Llib/llhttp -lllhttp $(shell pcre2-config --libs8)
+LDFLAGS += -Llib/llhttp -lllhttp $(shell pcre-config --libs)
 CXXHEADERS := $(shell find $(SOURCEDIR) -name '*.hpp')
 
 .PHONY: all
