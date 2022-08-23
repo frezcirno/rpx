@@ -34,7 +34,7 @@ public:
 
   void setRequestCallback(HttpRequestCallback cb)
   {
-    _requestCallback = cb;
+    _requestCallback = std::move(cb);
   }
 
 private:

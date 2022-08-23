@@ -25,6 +25,7 @@ int main(int argc, char const* argv[])
   EventLoop loop;
   HttpServer server(&loop, InetAddress(8080), true, threadNum);
   HttpRouter router;
+  router.addRoute("\\/big", new StaticHandler("/big", "./static/big_file", true));
   router.addRoute("\\/a", new StaticHandler("/a", "./static/a", true));
   router.addRoute("\\/b", new StaticHandler("/b", "./static/b", true));
   router.addRoute("\\/c", new StaticHandler("/c", "./static/c", true));

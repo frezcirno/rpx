@@ -36,7 +36,7 @@ public:
     if (filePath.back() == '/')
       filePath += "index.html";
     std::shared_ptr<std::ifstream> ifs(new std::ifstream(filePath, std::ios::binary));
-    if (!ifs) {
+    if (!ifs->good()) {
       ctx.sendError(HttpStatus::NOT_FOUND);
       return;
     }
@@ -46,28 +46,31 @@ public:
     ctx.sendHeader("Content-Type", "text/html");
     ctx.sendHeader("Content-Length", std::to_string(fileSize));
     ctx.endHeaders();
-    // ctx.setWriteCompleteCallback([ifs](HttpContext& ctx) { sendMore(ctx, ifs); });
-    char buf[1024];
-    while (ifs->good()) {
-      ifs->read(buf, sizeof(buf));
-      int rv = ctx.send(buf, ifs->gcount());
-      if (rv < 0)
-        break;
-    }
-    ctx.shutdown();
+    // char buf[1024];
+    // while (ifs->good()) {
+    //   ifs->read(buf, sizeof(buf));
+    //   int rv = ctx.send(buf, ifs->gcount());
+    //   if (rv < 0)
+    //     break;
+    // }
+    // ctx.shutdown();
+    ctx.setWriteCompleteCallback([ifs](HttpContext& ctx) { sendMore(ctx, ifs); });
   }
 
   static void sendMore(HttpContext& ctx, std::shared_ptr<std::ifstream> ifs)
   {
-    char buf[1024];
+    char buf[4096];
     if (ifs->good()) {
       ifs->read(buf, sizeof buf);
       size_t readCount = ifs->gcount();
       if (readCount > 0) {
-        ctx.send(buf, readCount);
+        int rv = ctx.send(buf, readCount);
+        if (rv < 0)
+          goto err;
       }
       return;
     }
+  err:
     ctx.setWriteCompleteCallback(NULL);
     ctx.shutdown();
   }
