@@ -30,6 +30,16 @@ int main(int argc, char const* argv[])
   router.addRoute("\\/b", new StaticHandler("/b", "./static/b", true));
   router.addRoute("\\/c", new StaticHandler("/c", "./static/c", true));
   server.setRequestCallback([&router](HttpContext& ctx) { router.handleRequest(ctx); });
+  int i = 3;
+  void* timer;
+  timer = loop.runEvery(1.0, [&] {
+    if (i) {
+      std::cout << i-- << std::endl;
+    } else {
+      loop.cancel(timer);
+      std::cout << "Timer!" << std::endl;
+    }
+  });
   server.start();
   loop.loop();
   return 0;
