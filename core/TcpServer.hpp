@@ -25,7 +25,7 @@ public:
     static auto init = signal(SIGPIPE, SIG_IGN);
 
     _acceptor->setNewConnectionCallback(
-      [this](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
+      [&](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
   }
   ~TcpServer() {}
 
@@ -38,24 +38,24 @@ public:
   {
     // make acceptor start listening
     std::cout << "listening on " << _addr.toIpPort() << std::endl;
-    _baseLoop->runInLoop([this] { _acceptor->listen(); });
+    _baseLoop->runInLoop([&] { _acceptor->listen(); });
   }
 
-  void setConnectCallback(const ConnectCallback& cb)
+  void setConnectCallback(ConnectCallback cb)
   {
-    _userConnectCallback = cb;
+    _userConnectCallback = std::move(cb);
   }
-  void setMessageCallback(const MessageCallback& cb)
+  void setMessageCallback(MessageCallback cb)
   {
-    _userMessageCallback = cb;
+    _userMessageCallback = std::move(cb);
   }
-  void setWriteCompleteCallback(const WriteCompleteCallback& cb)
+  void setWriteCompleteCallback(WriteCompleteCallback cb)
   {
-    _userWriteCompleteCallback = cb;
+    _userWriteCompleteCallback = std::move(cb);
   }
-  void setCloseCallback(const CloseCallback& cb)
+  void setCloseCallback(CloseCallback cb)
   {
-    _userCloseCallback = cb;
+    _userCloseCallback = std::move(cb);
   }
 
 private:
@@ -75,18 +75,19 @@ private:
   {
     assert(_baseLoop->isInEventLoop());
     EventLoop* ioLoop = _pool.getNextLoop();
-    TcpConnectionPtr conn(new TcpConnection(ioLoop, sockfd, peerAddr));
+    auto conn = std::make_shared<TcpConnection>(ioLoop, sockfd, peerAddr);
     _connections.insert({sockfd, conn});
     conn->setConnectCallback(_userConnectCallback);
     conn->setMessageCallback(_userMessageCallback);
     conn->setWriteCompleteCallback(_userWriteCompleteCallback);
-    conn->setCloseCallback([this](const TcpConnectionPtr& conn) { handleClose(conn); });
+    conn->setCloseCallback([&](const TcpConnectionPtr& conn) { handleClose(conn); });
     ioLoop->runInLoop([conn] { conn->connectEstablished(); });
   }
 
   // user close callback wrapper
   void handleClose(const TcpConnectionPtr& conn)
   {
+    // CHECKME: capture conn by value or reference?
     _baseLoop->runInLoop([this, conn] { handleCloseInLoop(conn); });
   }
 
@@ -96,6 +97,7 @@ private:
     _connections.erase(conn->fd());
 
     EventLoop* connLoop = conn->getLoop();
+    // CHECKME: capture conn by value or reference?
     connLoop->queueInLoop([this, conn] { conn->connectDestroyed(_userCloseCallback); });
   }
 };

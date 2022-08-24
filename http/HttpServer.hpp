@@ -14,12 +14,12 @@ public:
              ThreadInitCallback cb = ThreadInitCallback())
     : _server(loop, listenAddr, reusePort, threadNum, cb)
   {
-    _server.setConnectCallback([this](const TcpConnectionPtr& conn) { initConnection(conn); });
-    _server.setCloseCallback([this](const TcpConnectionPtr& conn) { deleteConnection(conn); });
+    _server.setConnectCallback([&](const TcpConnectionPtr& conn) { initConnection(conn); });
+    _server.setCloseCallback([&](const TcpConnectionPtr& conn) { deleteConnection(conn); });
     _server.setMessageCallback(
-      [this](const TcpConnectionPtr& conn, StreamBuffer* buffer) { handleMessage(conn, buffer); });
+      [&](const TcpConnectionPtr& conn, StreamBuffer* buffer) { handleMessage(conn, buffer); });
     _server.setWriteCompleteCallback(
-      [this](const TcpConnectionPtr& conn) { writeCompleteCallback(conn); });
+      [&](const TcpConnectionPtr& conn) { writeCompleteCallback(conn); });
   }
   ~HttpServer() {}
 

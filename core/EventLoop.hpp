@@ -41,7 +41,7 @@ public:
     , _interests(0)
     , _events(0)
   {
-    poller_cb.state = CHAN_UNSET;   // hard-coded
+    poller_cb.state = CHAN_UNSET;   // FIXME: hard-coded
   }
   ~Channel() {}
 
@@ -441,7 +441,7 @@ public:
     , _wakeupChannel(new Channel(this, _wakeupFd))
     , _timerQueue(new TimerQueue(this))
   {
-    _wakeupChannel->setReadCallback([this] { this->wakeupRead(); });
+    _wakeupChannel->setReadCallback([&] { this->wakeupRead(); });
     _wakeupChannel->setReadInterest();
   }
   ~EventLoop()
@@ -502,7 +502,7 @@ public:
     }
   }
 
-  void runInLoop(const Task& cb)
+  void runInLoop(Task cb)
   {
     if (isInEventLoop()) {
       // in the loop now
@@ -517,14 +517,14 @@ public:
     return _timerQueue->addTimer(std::move(cb), time, 0.0);
   }
 
-  void* runAfter(double delay, TimerCallback cb)
+  void* runAfter(double delayS, TimerCallback cb)
   {
-    return runAt(Time::now().offsetBy(delay), std::move(cb));
+    return runAt(Time::now().offsetBy(delayS), std::move(cb));
   }
 
-  void* runEvery(double interval, TimerCallback cb)
+  void* runEvery(double intervalS, TimerCallback cb)
   {
-    return _timerQueue->addTimer(std::move(cb), Time::now(), interval);
+    return _timerQueue->addTimer(std::move(cb), Time::now(), intervalS);
   }
 
   void cancel(void* timerId)

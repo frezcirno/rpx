@@ -31,14 +31,18 @@ public:
     , _readBuffer(1024)
     , _writeBuffer(1024, 20)
   {
-    _channel->setReadCallback([this] { handleRead(); });
-    _channel->setWriteCallback([this] { handleWrite(); });
-    _channel->setCloseCallback([this] { handleClose(); });
-    _channel->setErrorCallback([this] { handleError(); });
+    _channel->setReadCallback([&] { handleRead(); });
+    _channel->setWriteCallback([&] { handleWrite(); });
+    _channel->setCloseCallback([&] { handleClose(); });
+    _channel->setErrorCallback([&] { handleError(); });
     _socket->setKeepAlive(true);
   }
   ~TcpConnection() {}
 
+  EventLoop* getLoop() const
+  {
+    return _loop;
+  }
   int fd()
   {
     return _channel->fd();
@@ -48,21 +52,39 @@ public:
     return _peerAddr;
   }
 
-  void setConnectCallback(const ConnectCallback& cb)
+  void setConnectCallback(ConnectCallback cb)
   {
-    _connectCallback = cb;
+    _connectCallback = std::move(cb);
   }
-  void setMessageCallback(const MessageCallback& cb)
+  void setMessageCallback(MessageCallback cb)
   {
-    _messageCallback = cb;
+    _messageCallback = std::move(cb);
   }
-  void setCloseCallback(const CloseCallback& cb)
+  void setCloseCallback(CloseCallback cb)
   {
-    _closeCallback = cb;
+    _closeCallback = std::move(cb);
   }
-  void setWriteCompleteCallback(const WriteCompleteCallback& cb)
+  void setWriteCompleteCallback(WriteCompleteCallback cb)
   {
-    _writeCompleteCallback = cb;
+    _writeCompleteCallback = std::move(cb);
+  }
+
+  void connectEstablished()
+  {
+    assert(_loop->isInEventLoop());
+    _channel->tie(shared_from_this());
+    _channel->setReadInterest();
+
+    _connectCallback(shared_from_this());
+  }
+
+  void connectDestroyed(const CloseCallback& userCloseCallback)
+  {
+    assert(_loop->isInEventLoop());
+    _channel->unsetAllInterest();
+    if (userCloseCallback)
+      userCloseCallback(shared_from_this());
+    _channel->remove();
   }
 
   int write(const char* data, size_t len)
@@ -82,7 +104,7 @@ public:
         remaining -= written;
         if (remaining == 0) {
           if (_writeCompleteCallback)
-            _loop->queueInLoop([this] {
+            _loop->queueInLoop([&] {
               if (_writeCompleteCallback)
                 _writeCompleteCallback(shared_from_this());
             });
@@ -105,12 +127,7 @@ public:
 
   void shutdown()
   {
-    _loop->runInLoop([this] { shutdownInLoop(); });
-  }
-  void shutdownInLoop()
-  {
-    assert(_loop->isInEventLoop());
-    _socket->shutdownWrite();
+    _loop->runInLoop([&] { _socket->shutdownWrite(); });
   }
 
   std::any& getUserData()
@@ -137,28 +154,6 @@ private:
   StreamBuffer _writeBuffer;
 
   std::any _userData;
-
-  EventLoop* getLoop() const
-  {
-    return _loop;
-  }
-
-  void connectEstablished()
-  {
-    assert(_loop->isInEventLoop());
-    _channel->tie(shared_from_this());
-    _channel->setReadInterest();
-
-    _connectCallback(shared_from_this());
-  }
-
-  void connectDestroyed(const CloseCallback& userCloseCallback)
-  {
-    assert(_loop->isInEventLoop());
-    _channel->unsetAllInterest();
-    userCloseCallback(shared_from_this());
-    _channel->remove();
-  }
 
   // Wrappers for the callbacks to be called from the event loop
   void handleRead()
@@ -192,7 +187,7 @@ private:
         if (_writeBuffer.empty()) {
           _channel->unsetWriteInterest();
           if (_writeCompleteCallback)
-            _loop->queueInLoop([this] {
+            _loop->queueInLoop([&] {
               if (_writeCompleteCallback)
                 _writeCompleteCallback(shared_from_this());
             });

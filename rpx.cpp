@@ -8,6 +8,7 @@
 #include "ThreadPool.hpp"
 #include "EventLoop.hpp"
 #include "HttpServer.hpp"
+#include "TcpClient.hpp"
 #include "HttpRouter.hpp"
 #include "StaticHandler.hpp"
 
@@ -30,6 +31,8 @@ int main(int argc, char const* argv[])
   router.addRoute("\\/b", new StaticHandler("/b", "./static/b", true));
   router.addRoute("\\/c", new StaticHandler("/c", "./static/c", true));
   server.setRequestCallback([&router](HttpContext& ctx) { router.handleRequest(ctx); });
+  server.start();
+
   int i = 3;
   void* timer;
   timer = loop.runEvery(1.0, [&] {
@@ -40,7 +43,21 @@ int main(int argc, char const* argv[])
       std::cout << "Timer!" << std::endl;
     }
   });
-  server.start();
+
+  InetAddress addr("110.242.68.66", 80);
+  TcpClient client(&loop, addr);
+  client.setConnectCallback([](const TcpConnectionPtr& conn) {
+    conn->write("GET / HTTP/1.1\r\n");
+    conn->write("Host: www.baidu.com\r\n");
+    conn->write("\r\n");
+    conn->shutdown();
+  });
+  client.setMessageCallback([](const TcpConnectionPtr& conn, StreamBuffer* buf) {
+    std::cout << buf->data() << std::endl;
+    buf->popFront();
+  });
+  client.connect();
+
   loop.loop();
   return 0;
 }

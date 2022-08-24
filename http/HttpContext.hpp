@@ -19,7 +19,7 @@ private:
   HttpContext(TcpConnectionPtr conn)
     : _conn(conn)
   {
-    _conn->setWriteCompleteCallback([this](const TcpConnectionPtr& conn) {
+    _conn->setWriteCompleteCallback([&](const TcpConnectionPtr& conn) {
       HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
       if (writeCompleteCallback)
         writeCompleteCallback(*ctx);

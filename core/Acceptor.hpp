@@ -23,7 +23,7 @@ public:
     socket.setReuseAddr(true);
     socket.setReuseAddr(reusePort);
     socket.bind(addr);
-    serverChannel.setReadCallback([this] { handleRead(); });
+    serverChannel.setReadCallback([&] { handleRead(); });
   }
   ~Acceptor()
   {

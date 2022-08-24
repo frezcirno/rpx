@@ -30,7 +30,7 @@ int socket(sa_family_t family)
 
 void bind(int fd, const struct sockaddr_in* addr)
 {
-  int rv = ::bind(fd, reinterpret_cast<const struct sockaddr*>(addr), sizeof(*addr));
+  int rv = ::bind(fd, sockaddr_cast(addr), sizeof(*addr));
   if (rv < 0) {
     perror("bind");
     abort();
@@ -49,7 +49,7 @@ void listen(int fd)
 int accept(int fd, struct sockaddr_in* addr)
 {
   socklen_t addrlen = sizeof(*addr);
-  int rv = ::accept(fd, reinterpret_cast<struct sockaddr*>(addr), &addrlen);
+  int rv = ::accept(fd, sockaddr_cast(addr), &addrlen);
   if (rv < 0) {
     perror("accept");
     abort();
@@ -57,9 +57,9 @@ int accept(int fd, struct sockaddr_in* addr)
   return rv;
 }
 
-int connect(int sockfd, const struct sockaddr* addr)
+int connect(int sockfd, const struct sockaddr_in* addr)
 {
-  return ::connect(sockfd, addr, static_cast<socklen_t>(sizeof(struct sockaddr_in6)));
+  return ::connect(sockfd, sockaddr_cast(addr), static_cast<socklen_t>(sizeof(*addr)));
 }
 
 int getSocketError(int sockfd)
@@ -72,6 +72,42 @@ int getSocketError(int sockfd)
   } else {
     return optval;
   }
+}
+
+struct sockaddr_in getLocalAddr(int sockfd)
+{
+  struct sockaddr_in localaddr;
+  memset(&localaddr, 0, sizeof(localaddr));
+  socklen_t addrlen = static_cast<socklen_t>(sizeof(localaddr));
+  if (::getsockname(sockfd, sockaddr_cast(&localaddr), &addrlen) < 0) {
+    perror("getsockname");
+    abort();
+  }
+  return localaddr;
+}
+
+struct sockaddr_in getPeerAddr(int sockfd)
+{
+  struct sockaddr_in peeraddr;
+  memset(&peeraddr, 0, sizeof(peeraddr));
+  socklen_t addrlen = static_cast<socklen_t>(sizeof(peeraddr));
+  if (::getpeername(sockfd, sockaddr_cast(&peeraddr), &addrlen) < 0) {
+    perror("getpeername");
+    abort();
+  }
+  return peeraddr;
+}
+
+bool isSelfConnect(int sockfd)
+{
+  struct sockaddr_in localaddr = getLocalAddr(sockfd);
+  if (localaddr.sin_family != AF_INET)
+    return false;
+
+  struct sockaddr_in peeraddr = getPeerAddr(sockfd);
+  const struct sockaddr_in* laddr4 = reinterpret_cast<struct sockaddr_in*>(&localaddr);
+  const struct sockaddr_in* raddr4 = reinterpret_cast<struct sockaddr_in*>(&peeraddr);
+  return laddr4->sin_port == raddr4->sin_port && laddr4->sin_addr.s_addr == raddr4->sin_addr.s_addr;
 }
 
 class InetAddress
