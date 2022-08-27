@@ -21,7 +21,7 @@ class HttpRouter : noncopyable
 {
 private:
   // Route: move-only type
-  class Route : noncopyable
+  class Route
   {
   public:
     Route(std::string&& pattern, HttpHandler* handler)

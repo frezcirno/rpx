@@ -48,7 +48,7 @@ AllowAllParametersOfDeclarationOnNextLine: true
 AllowShortBlocksOnASingleLine: Empty
  
 # 允许短的case标签放在同一行
-AllowShortCaseLabelsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: false
 
 # 允许短的函数放在同一行: None, InlineOnly(定义在类中), Empty(空函数), Inline(定义在类中，空函数), All
 AllowShortFunctionsOnASingleLine: Empty
@@ -182,7 +182,7 @@ IncludeCategories:
     Priority:   1
  
 # 缩进case标签
-IndentCaseLabels: false
+IndentCaseLabels: true
  
 # 要使用的预处理器指令缩进样式
 IndentPPDirectives: AfterHash

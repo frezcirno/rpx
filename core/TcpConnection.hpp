@@ -8,19 +8,15 @@
 #include "StreamBuffer.hpp"
 #include "EventLoop.hpp"
 
-
 class TcpConnection;
 typedef std::shared_ptr<TcpConnection> TcpConnectionPtr;
-typedef std::function<void(const TcpConnectionPtr&)> ConnectCallback;
-typedef std::function<void(const TcpConnectionPtr&, StreamBuffer*)> MessageCallback;
-typedef std::function<void(const TcpConnectionPtr&)> CloseCallback;
-typedef std::function<void(const TcpConnectionPtr&)> WriteCompleteCallback;
-
-class TcpServer;
+typedef std::function<void(const TcpConnectionPtr&)> TcpCallback;
+typedef std::function<void(const TcpConnectionPtr&, StreamBuffer*)> TcpMessageCallback;
 
 class TcpConnection : noncopyable, public std::enable_shared_from_this<TcpConnection>
 {
-  friend TcpServer;
+  friend class TcpServer;
+  friend class TcpClient;
 
 public:
   TcpConnection(EventLoop* loop, int sockfd, const InetAddress& peerAddr)
@@ -52,39 +48,21 @@ public:
     return _peerAddr;
   }
 
-  void setConnectCallback(ConnectCallback cb)
+  void setConnectCallback(TcpCallback cb)
   {
     _connectCallback = std::move(cb);
   }
-  void setMessageCallback(MessageCallback cb)
+  void setMessageCallback(TcpMessageCallback cb)
   {
     _messageCallback = std::move(cb);
   }
-  void setCloseCallback(CloseCallback cb)
+  void setCloseCallback(TcpCallback cb)
   {
     _closeCallback = std::move(cb);
   }
-  void setWriteCompleteCallback(WriteCompleteCallback cb)
+  void setWriteCompleteCallback(TcpCallback cb)
   {
     _writeCompleteCallback = std::move(cb);
-  }
-
-  void connectEstablished()
-  {
-    assert(_loop->isInEventLoop());
-    _channel->tie(shared_from_this());
-    _channel->setReadInterest();
-
-    _connectCallback(shared_from_this());
-  }
-
-  void connectDestroyed(const CloseCallback& userCloseCallback)
-  {
-    assert(_loop->isInEventLoop());
-    _channel->unsetAllInterest();
-    if (userCloseCallback)
-      userCloseCallback(shared_from_this());
-    _channel->remove();
   }
 
   int write(const char* data, size_t len)
@@ -145,15 +123,33 @@ private:
   InetAddress _peerAddr;
   std::unique_ptr<Socket> _socket;
 
-  ConnectCallback _connectCallback;
-  MessageCallback _messageCallback;
-  CloseCallback _closeCallback;
-  WriteCompleteCallback _writeCompleteCallback;
+  TcpCallback _connectCallback;
+  TcpMessageCallback _messageCallback;
+  TcpCallback _closeCallback;
+  TcpCallback _writeCompleteCallback;
 
   StreamBuffer _readBuffer;
   StreamBuffer _writeBuffer;
 
   std::any _userData;
+
+  void connectEstablished()
+  {
+    assert(_loop->isInEventLoop());
+    _channel->tie(shared_from_this());
+    _channel->setReadInterest();
+
+    _connectCallback(shared_from_this());
+  }
+
+  void connectDestroyed(const TcpCallback& userCloseCallback)
+  {
+    assert(_loop->isInEventLoop());
+    _channel->unsetAllInterest();
+    if (userCloseCallback)
+      userCloseCallback(shared_from_this());
+    _channel->remove();
+  }
 
   // Wrappers for the callbacks to be called from the event loop
   void handleRead()

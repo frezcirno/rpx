@@ -4,15 +4,13 @@
 #include "EventLoop.hpp"
 #include "Socket.hpp"
 
-class TcpClient;
-
-typedef std::function<void(int sockfd)> NewConnectionCallback;
-
 class Connector : noncopyable, public std::enable_shared_from_this<Connector>
 {
-  friend TcpClient;
+  friend class TcpClient;
 
 public:
+  typedef std::function<void(int sockfd)> NewConnectionCallback;
+
   Connector(EventLoop* loop, const InetAddress& peerAddr)
     : _loop(loop)
     , _peerAddr(peerAddr)
@@ -38,7 +36,7 @@ public:
     _loop->runInLoop([&] {
       assert(_state == DISCONNECTED);
       if (_running)
-        connecting();
+        connect();
     });
   }
 
@@ -85,7 +83,7 @@ private:
     start();
   }
 
-  void connecting()
+  void connect()
   {
     int sockfd = ::socket(_peerAddr.family());
     int ret = ::connect(sockfd, _peerAddr.getSockAddr());
@@ -171,7 +169,7 @@ private:
     ::close(sockfd);
     setState(DISCONNECTED);
     if (_running) {
-      _loop->runAfter(_retryDelayMs / 1000, [that = shared_from_this()] { that->connecting(); });
+      _loop->runAfter(_retryDelayMs / 1000, [that = shared_from_this()] { that->connect(); });
       _retryDelayMs = std::min(_retryDelayMs * 2, kMaxRetryDelayMs);
     }
   }

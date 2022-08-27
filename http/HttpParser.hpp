@@ -2,6 +2,7 @@
 #define __HTTPPARSER_HPP__
 
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <functional>
 #include "Utils.hpp"
@@ -10,16 +11,74 @@
 
 class HttpParser;
 
+class HttpRequest
+{
+public:
+  HttpRequest(const std::string& url)
+    : _url(url)
+  {}
+
+  ~HttpRequest() {}
+
+  void setMethod(llhttp_method_t method)
+  {
+    _method = method;
+  }
+
+  void setPath(const std::string& url)
+  {
+    _url = url;
+  }
+
+  void setVersion(const std::string& version)
+  {
+    _version = version;
+  }
+
+  void setHeader(const std::string& key, const std::string& value)
+  {
+    _headers[key] = value;
+  }
+
+  void setHeaders(const std::unordered_map<std::string, std::string>& headers)
+  {
+    _headers = headers;
+  }
+
+  void setBody(const std::string& body)
+  {
+    _body = body;
+  }
+
+  std::string serialize() const
+  {
+    std::stringstream ss;
+    ss << _method << " " << _url << " " << _version << "\r\n";
+    for (auto& kv : _headers) {
+      ss << kv.first << ": " << kv.second << "\r\n";
+    }
+    ss << "\r\n";
+    ss << _body;
+    return ss.str();
+  }
+
+private:
+  llhttp_method_t _method;
+  std::string _url;
+  std::string _version;
+  std::unordered_map<std::string, std::string> _headers;
+  std::string _body;
+};
 
 class HttpParser : noncopyable
 {
-private:
-  typedef std::function<void(const HttpParser&)> RequestCallback;
-
 public:
-  HttpParser()
+  typedef std::function<void(const HttpParser&)> MessageCallback;
+
+  HttpParser(llhttp_type mode)
     : _headerComplete(0)
     , _messageSeq(-1)
+    , _mode(mode)
   {
     llhttp_settings_init(&_settings);
     _settings.on_message_begin = HttpParser::on_message_begin;
@@ -32,7 +91,7 @@ public:
     _settings.on_body = HttpParser::on_body;
     _settings.on_message_complete = HttpParser::on_message_complete;
 
-    llhttp_init(&_parser, llhttp_type::HTTP_REQUEST, &_settings);
+    llhttp_init(&_parser, mode, &_settings);
   }
   ~HttpParser() {}
 
@@ -65,11 +124,11 @@ public:
   {
     return _messageSeq;
   }
-  enum llhttp_method getMethod() const
+  llhttp_method_t getMethod() const
   {
     return static_cast<llhttp_method_t>(_parser.method);
   }
-  std::string getMethodStr() const
+  const char* getMethodStr() const
   {
     return llhttp_method_name(getMethod());
   }
@@ -100,14 +159,15 @@ public:
     return _body;
   }
 
-  void setRequestCallback(RequestCallback cb)
+  void setMessageCallback(MessageCallback cb)
   {
-    _requestCallback = std::move(cb);
+    _messageCallback = std::move(cb);
   }
 
 private:
   llhttp_t _parser;
   llhttp_settings_t _settings;
+  llhttp_type _mode;
   std::unordered_map<std::string, std::string> _headers;
   std::string _path;
   std::string _currentHeader;
@@ -115,7 +175,7 @@ private:
   int _headerComplete;
   int _messageSeq;
 
-  RequestCallback _requestCallback;
+  MessageCallback _messageCallback;
 
   static int on_message_begin(llhttp_t* parser)
   {
@@ -169,7 +229,7 @@ private:
   static int on_message_complete(llhttp_t* parser)
   {
     HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_requestCallback(*httpParser);
+    httpParser->_messageCallback(*httpParser);
     return 0;
   }
 };

@@ -6,23 +6,23 @@
 #include "HttpDefinition.hpp"
 #include "HttpParser.hpp"
 
-class HttpServer;
-
 class HttpContext;
-typedef std::function<void(HttpContext&)> HttpWriteCompleteCallback;
+typedef std::function<void(HttpContext&)> HttpCallback;
 
 class HttpContext
 {
-  friend HttpServer;
+  friend class HttpServer;
+  friend class HttpClient;
 
 private:
-  HttpContext(TcpConnectionPtr conn)
+  HttpContext(TcpConnectionPtr conn, llhttp_type_t mode)
     : _conn(conn)
+    , parser(mode)
   {
     _conn->setWriteCompleteCallback([&](const TcpConnectionPtr& conn) {
       HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
-      if (writeCompleteCallback)
-        writeCompleteCallback(*ctx);
+      if (_writeCompleteCallback)
+        _writeCompleteCallback(*ctx);
     });
   }
   ~HttpContext() {}
@@ -31,6 +31,19 @@ public:
   TcpConnectionPtr& getConn()
   {
     return _conn;
+  }
+
+  void setMessageCallback(const HttpParser::MessageCallback& cb)
+  {
+    parser.setMessageCallback(cb);
+  }
+
+  void startRequest(llhttp_method_t method, const std::string& url)
+  {
+    _conn->write(llhttp_method_name(method));
+    _conn->write(" ");
+    _conn->write(url);
+    _conn->write(" HTTP/1.1\r\n");
   }
 
   void startResponse(int code, const std::string& message)
@@ -60,9 +73,9 @@ public:
     return _conn->write("\r\n", 2);
   }
 
-  void setWriteCompleteCallback(const HttpWriteCompleteCallback& cb)
+  void setWriteCompleteCallback(HttpCallback cb)
   {
-    writeCompleteCallback = cb;
+    _writeCompleteCallback = std::move(cb);
   }
 
   int send(const std::string& contents)
@@ -102,7 +115,7 @@ public:
 
 private:
   TcpConnectionPtr _conn;
-  HttpWriteCompleteCallback writeCompleteCallback;
+  HttpCallback _writeCompleteCallback;
 
 public:
   HttpParser parser;

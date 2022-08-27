@@ -13,7 +13,6 @@ class Acceptor
 public:
   typedef std::function<void(int sockfd, const InetAddress&)> NewConnectionCallback;
 
-public:
   Acceptor(EventLoop* loop, const InetAddress& addr, bool reusePort)
     : _loop(loop)
     , socket(addr.family())
@@ -32,9 +31,9 @@ public:
     ::close(_idleFd);
   }
 
-  void setNewConnectionCallback(const NewConnectionCallback& cb)
+  void setNewConnectionCallback(NewConnectionCallback cb)
   {
-    _newConnectionCallback = cb;
+    _newConnectionCallback = std::move(cb);
   }
 
   void listen()

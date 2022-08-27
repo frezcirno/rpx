@@ -41,19 +41,19 @@ public:
     _baseLoop->runInLoop([&] { _acceptor->listen(); });
   }
 
-  void setConnectCallback(ConnectCallback cb)
+  void setConnectCallback(TcpCallback cb)
   {
     _userConnectCallback = std::move(cb);
   }
-  void setMessageCallback(MessageCallback cb)
+  void setMessageCallback(TcpMessageCallback cb)
   {
     _userMessageCallback = std::move(cb);
   }
-  void setWriteCompleteCallback(WriteCompleteCallback cb)
+  void setWriteCompleteCallback(TcpCallback cb)
   {
     _userWriteCompleteCallback = std::move(cb);
   }
-  void setCloseCallback(CloseCallback cb)
+  void setCloseCallback(TcpCallback cb)
   {
     _userCloseCallback = std::move(cb);
   }
@@ -66,10 +66,10 @@ private:
   std::unordered_map<int, TcpConnectionPtr> _connections;
 
   // default callbacks for created connections
-  ConnectCallback _userConnectCallback;
-  MessageCallback _userMessageCallback;
-  WriteCompleteCallback _userWriteCompleteCallback;
-  CloseCallback _userCloseCallback;
+  TcpCallback _userConnectCallback;
+  TcpMessageCallback _userMessageCallback;
+  TcpCallback _userWriteCompleteCallback;
+  TcpCallback _userCloseCallback;
 
   void handleNewConnection(int sockfd, const InetAddress& peerAddr)
   {

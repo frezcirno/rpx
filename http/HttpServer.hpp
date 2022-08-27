@@ -5,8 +5,6 @@
 #include "TcpServer.hpp"
 #include "HttpContext.hpp"
 
-typedef std::function<void(HttpContext&)> HttpRequestCallback;
-
 class HttpServer
 {
 public:
@@ -32,19 +30,19 @@ public:
     _server.start();
   }
 
-  void setRequestCallback(HttpRequestCallback cb)
+  void setRequestCallback(HttpCallback cb)
   {
     _requestCallback = std::move(cb);
   }
 
 private:
   TcpServer _server;
-  HttpRequestCallback _requestCallback;
+  HttpCallback _requestCallback;
 
   void initConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn);
-    ctx->parser.setRequestCallback([this, ctx](const HttpParser&) { _requestCallback(*ctx); });
+    HttpContext* ctx = new HttpContext(conn, HTTP_REQUEST);
+    ctx->setMessageCallback([this, ctx](const HttpParser&) { _requestCallback(*ctx); });
     conn->setUserData(ctx);
   }
 
