@@ -9,24 +9,23 @@
 class StaticHandler : public HttpHandler
 {
 public:
-  StaticHandler(const std::string& location, const std::string& rootPath, bool alias = false)
-    : _location(location)
-    , _rootPath(rootPath)
+  StaticHandler(const std::string& rootPath, bool alias = false)
+    : _rootPath(rootPath)
     , _alias(alias)
   {}
   ~StaticHandler() {}
 
-  void handleRequest(HttpContext& ctx)
+  void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server)
   {
-    std::string path = ctx.parser.getPath();
+    std::string path = ctx.parser.getMessage()->path;
+    dzlog_debug("StaticHandler: %.*s", (int)path.size(), path.c_str());
     if (path.find("..") != std::string::npos) {
       ctx.sendError(HttpStatus::FORBIDDEN);
       return;
     }
     std::string filePath;
     if (_alias) {
-      if (path.find(_location) == 0)
-        path = path.substr(_location.size());
+      path = path.substr(prefixLen);
       if (path.empty() || path[0] != '/')
         path = "/" + path;
       filePath = _rootPath + path;
@@ -76,7 +75,6 @@ public:
   }
 
 private:
-  std::string _location;
   std::string _rootPath;
   bool _alias;
 };

@@ -5,94 +5,64 @@
 #include <sstream>
 #include <unordered_map>
 #include <functional>
+#include "llhttp.h"
 #include "Utils.hpp"
 #include "TcpConnection.hpp"
-#include "llhttp.h"
 
+template<typename T>
 class HttpParser;
 
-class HttpRequest
+struct HttpRequest
 {
-public:
-  HttpRequest(const std::string& url)
-    : _url(url)
-  {}
-
-  ~HttpRequest() {}
-
-  void setMethod(llhttp_method_t method)
-  {
-    _method = method;
-  }
-
-  void setPath(const std::string& url)
-  {
-    _url = url;
-  }
-
-  void setVersion(const std::string& version)
-  {
-    _version = version;
-  }
-
-  void setHeader(const std::string& key, const std::string& value)
-  {
-    _headers[key] = value;
-  }
-
-  void setHeaders(const std::unordered_map<std::string, std::string>& headers)
-  {
-    _headers = headers;
-  }
-
-  void setBody(const std::string& body)
-  {
-    _body = body;
-  }
+  llhttp_method_t method;
+  std::string path;
+  uint8_t major, minor;
+  std::unordered_map<std::string, std::string> headers;
+  std::string body;
 
   std::string serialize() const
   {
     std::stringstream ss;
-    ss << _method << " " << _url << " " << _version << "\r\n";
-    for (auto& kv : _headers) {
+    ss << llhttp_method_name(method) << " " << path << " HTTP/" << static_cast<int>(major) << "."
+       << static_cast<int>(minor) << "\r\n";
+    for (auto& kv : headers) {
       ss << kv.first << ": " << kv.second << "\r\n";
     }
     ss << "\r\n";
-    ss << _body;
+    ss << body;
     return ss.str();
   }
-
-private:
-  llhttp_method_t _method;
-  std::string _url;
-  std::string _version;
-  std::unordered_map<std::string, std::string> _headers;
-  std::string _body;
 };
 
+struct HttpResponse
+{
+  uint8_t major, minor;
+  uint16_t status_code;
+  std::string status_message;
+  std::unordered_map<std::string, std::string> headers;
+  std::string body;
+
+  std::string serialize() const
+  {
+    std::stringstream ss;
+    ss << "HTTP/" << static_cast<int>(major) << "." << static_cast<int>(minor) << " " << status_code
+       << " " << status_message << "\r\n";
+    for (auto& kv : headers) {
+      ss << kv.first << ": " << kv.second << "\r\n";
+    }
+    ss << "\r\n";
+    ss << body;
+    return ss.str();
+  }
+};
+
+template<typename T>
 class HttpParser : noncopyable
 {
 public:
-  typedef std::function<void(const HttpParser&)> MessageCallback;
+  typedef std::function<void(const HttpParser&)> ParseCallback;
 
-  HttpParser(llhttp_type mode)
-    : _headerComplete(0)
-    , _messageSeq(-1)
-    , _mode(mode)
-  {
-    llhttp_settings_init(&_settings);
-    _settings.on_message_begin = HttpParser::on_message_begin;
-    _settings.on_url = HttpParser::on_url;
-    _settings.on_header_field = HttpParser::on_header_field;
-    _settings.on_header_value = HttpParser::on_header_value;
-    _settings.on_headers_complete = HttpParser::on_headers_complete;
-    _settings.on_chunk_header = HttpParser::on_chunk_header;
-    _settings.on_chunk_complete = HttpParser::on_chunk_complete;
-    _settings.on_body = HttpParser::on_body;
-    _settings.on_message_complete = HttpParser::on_message_complete;
-
-    llhttp_init(&_parser, mode, &_settings);
-  }
+  HttpParser();
   ~HttpParser() {}
 
   llhttp_errno_t advance(const char* data, size_t len)
@@ -103,7 +73,7 @@ public:
   {
     return advance(data.data(), data.size());
   }
-  void next()
+  void resume()
   {
     llhttp_resume(&_parser);
   }
@@ -111,55 +81,53 @@ public:
   {
     return llhttp_finish(&_parser);
   }
-  void reset()
+
+  std::shared_ptr<T> getMessage() const
   {
-    _headerComplete = 0;
-    _path.clear();
-    _headers.clear();
-    _body.clear();
-    _currentHeader.clear();
+    return _data;
   }
 
-  int getRequestSeqno() const
+  void reset()
   {
-    return _messageSeq;
+    std::shared_ptr<T> new_data = std::make_shared<T>();
+    _data.swap(new_data);
   }
-  llhttp_method_t getMethod() const
-  {
-    return static_cast<llhttp_method_t>(_parser.method);
-  }
-  const char* getMethodStr() const
-  {
-    return llhttp_method_name(getMethod());
-  }
-  const std::string& getPath() const
-  {
-    assert(_path.size());
-    return _path;
-  }
+
+  // For parsing response
+  uint16_t getStatusCode() const;
+  const std::string& getStatusMessage() const;
+
+  // For parsing request
+  llhttp_method_t getMethod() const;
+  const char* getMethodStr() const;
+  const std::string& getPath() const;
+
   int getHttpMajor() const
   {
-    return llhttp_get_http_major(const_cast<llhttp_t*>(&_parser));
+    return _data->major;
   }
 
   int getHttpMinor() const
   {
-    return llhttp_get_http_minor(const_cast<llhttp_t*>(&_parser));
-  }
-  int headerComplete() const
-  {
-    return _headerComplete;
-  }
-  const std::unordered_map<std::string, std::string>& getHeaders() const
-  {
-    return _headers;
-  }
-  const std::string& getBody() const
-  {
-    return _body;
+    return _data->minor;
   }
 
-  void setMessageCallback(MessageCallback cb)
+  const std::unordered_map<std::string, std::string>& getHeaders() const
+  {
+    return _data->headers;
+  }
+
+  const std::string& getBody() const
+  {
+    return _data->body;
+  }
+
+  void setHeaderCallback(ParseCallback cb)
+  {
+    _headerCallback = std::move(cb);
+  }
+
+  void setMessageCallback(ParseCallback cb)
   {
     _messageCallback = std::move(cb);
   }
@@ -167,71 +135,158 @@ public:
 private:
   llhttp_t _parser;
   llhttp_settings_t _settings;
-  llhttp_type _mode;
-  std::unordered_map<std::string, std::string> _headers;
-  std::string _path;
-  std::string _currentHeader;
-  std::string _body;
-  int _headerComplete;
-  int _messageSeq;
+  std::shared_ptr<T> _data;
+  std::string _currentBuffer;
+  std::string _currentBuffer1;
 
-  MessageCallback _messageCallback;
+  ParseCallback _headerCallback;
+  ParseCallback _messageCallback;
 
   static int on_message_begin(llhttp_t* parser)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->reset();
-    httpParser->_messageSeq++;
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->reset();
     return 0;
   }
+
   static int on_url(llhttp_t* parser, const char* at, size_t length)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_path.assign(at, length);
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_currentBuffer.append(at, length);
     return 0;
   }
+
+  static int on_url_complete(llhttp_t* parser)
+  {
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_data->method = static_cast<llhttp_method_t>(llhttp_get_method(parser));
+    that->_data->path.swap(that->_currentBuffer);
+    return 0;
+  }
+
+  static int on_status(llhttp_t* parser, const char* at, size_t length)
+  {
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_currentBuffer.append(at, length);
+    return 0;
+  }
+
+  static int on_status_complete(llhttp_t* parser)
+  {
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_data->status_code = llhttp_get_status_code(parser);
+    that->_data->status_message.swap(that->_currentBuffer);
+    return 0;
+  }
+
   static int on_header_field(llhttp_t* parser, const char* at, size_t length)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_currentHeader.assign(at, length);
-    if (httpParser->_headers.count(httpParser->_currentHeader))
-      return -1;
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_currentBuffer.append(at, length);
     return 0;
   }
+
+  static int on_header_field_complete(llhttp_t* parser)
+  {
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    return 0;
+  }
+
   static int on_header_value(llhttp_t* parser, const char* at, size_t length)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_headers[httpParser->_currentHeader].assign(at, length);
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_currentBuffer1.append(at, length);
     return 0;
   }
+
+  static int on_header_value_complete(llhttp_t* parser)
+  {
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_data->headers[that->_currentBuffer].swap(that->_currentBuffer1);
+    that->_currentBuffer.clear();
+    // Now _currentBuffer and _currentBuffer1 are all clear.
+    return 0;
+  }
+
   static int on_headers_complete(llhttp_t* parser)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_headerComplete = 1;
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_data->major = llhttp_get_http_major(&that->_parser);
+    that->_data->minor = llhttp_get_http_minor(&that->_parser);
+    if (that->_headerCallback)
+      that->_headerCallback(*that);
     return 0;
   }
+
   static int on_chunk_header(llhttp_t* parser)
   {
-    // HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
+    // HttpParser* that = container_of(parser, &HttpParser::_parser);
     return 0;
   }
+
   static int on_chunk_complete(llhttp_t* parser)
   {
-    // HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
+    // HttpParser* that = container_of(parser, &HttpParser::_parser);
     return 0;
   }
+
   static int on_body(llhttp_t* parser, const char* at, size_t length)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_body.assign(at, length);
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_currentBuffer.append(at, length);
     return 0;
   }
+
   static int on_message_complete(llhttp_t* parser)
   {
-    HttpParser* httpParser = container_of(parser, &HttpParser::_parser);
-    httpParser->_messageCallback(*httpParser);
+    HttpParser* that = container_of(parser, &HttpParser::_parser);
+    that->_data->body.swap(that->_currentBuffer);
+    if (that->_messageCallback)
+      that->_messageCallback(*that);
     return 0;
   }
 };
+
+template<>
+HttpParser<HttpRequest>::HttpParser()
+{
+
+  llhttp_settings_init(&_settings);
+  _settings.on_message_begin = HttpParser::on_message_begin;
+  _settings.on_url = HttpParser::on_url;
+  _settings.on_url_complete = HttpParser::on_url_complete;
+  _settings.on_header_field = HttpParser::on_header_field;
+  _settings.on_header_field_complete = HttpParser::on_header_field_complete;
+  _settings.on_header_value = HttpParser::on_header_value;
+  _settings.on_header_value_complete = HttpParser::on_header_value_complete;
+  _settings.on_headers_complete = HttpParser::on_headers_complete;
+  _settings.on_chunk_header = HttpParser::on_chunk_header;
+  _settings.on_chunk_complete = HttpParser::on_chunk_complete;
+  _settings.on_body = HttpParser::on_body;
+  _settings.on_message_complete = HttpParser::on_message_complete;
+
+  llhttp_init(&_parser, HTTP_REQUEST, &_settings);
+}
+
+template<>
+HttpParser<HttpResponse>::HttpParser()
+{
+
+  llhttp_settings_init(&_settings);
+  _settings.on_message_begin = HttpParser::on_message_begin;
+  _settings.on_status = HttpParser::on_status;
+  _settings.on_status_complete = HttpParser::on_status_complete;
+  _settings.on_header_field = HttpParser::on_header_field;
+  _settings.on_header_field_complete = HttpParser::on_header_field_complete;
+  _settings.on_header_value = HttpParser::on_header_value;
+  _settings.on_header_value_complete = HttpParser::on_header_value_complete;
+  _settings.on_headers_complete = HttpParser::on_headers_complete;
+  _settings.on_chunk_header = HttpParser::on_chunk_header;
+  _settings.on_chunk_complete = HttpParser::on_chunk_complete;
+  _settings.on_body = HttpParser::on_body;
+  _settings.on_message_complete = HttpParser::on_message_complete;
+
+  llhttp_init(&_parser, HTTP_RESPONSE, &_settings);
+}
 
 #endif

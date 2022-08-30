@@ -6,18 +6,28 @@
 #include "HttpDefinition.hpp"
 #include "HttpParser.hpp"
 
+template<typename T>
 class HttpContext;
-typedef std::function<void(HttpContext&)> HttpCallback;
 
+/**
+ * class HttpContext: An wrapper over HttpConnection
+ *
+ * which provides a simple interface to send and parse http request/response.
+ */
+template<typename T>
 class HttpContext
 {
   friend class HttpServer;
   friend class HttpClient;
 
+public:
+  typedef class HttpParser<T> HttpParser;
+  typedef typename HttpParser::ParseCallback ParseCallback;
+  typedef typename std::function<void(HttpContext&)> HttpCallback;
+
 private:
-  HttpContext(TcpConnectionPtr conn, llhttp_type_t mode)
+  HttpContext(TcpConnectionPtr conn)
     : _conn(conn)
-    , parser(mode)
   {
     _conn->setWriteCompleteCallback([&](const TcpConnectionPtr& conn) {
       HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
@@ -25,17 +35,25 @@ private:
         _writeCompleteCallback(*ctx);
     });
   }
-  ~HttpContext() {}
+  ~HttpContext()
+  {
+    if (_destroyCallback)
+      _destroyCallback(*this);
+  }
 
 public:
-  TcpConnectionPtr& getConn()
+  const TcpConnectionPtr& getConn() const
   {
     return _conn;
   }
-
-  void setMessageCallback(const HttpParser::MessageCallback& cb)
+  EventLoop* getLoop() const
   {
-    parser.setMessageCallback(cb);
+    return _conn->getLoop();
+  }
+
+  void setDestroyCallback(HttpCallback cb)
+  {
+    _destroyCallback = std::move(cb);
   }
 
   void startRequest(llhttp_method_t method, const std::string& url)
@@ -93,6 +111,11 @@ public:
     _conn->shutdown();
   }
 
+  void forceClose()
+  {
+    _conn->forceClose();
+  }
+
   void sendError(int code, const std::string& message)
   {
     std::string body;
@@ -113,9 +136,25 @@ public:
     sendError(code, HttpDefinition::getMessage(code));
   }
 
+  std::any& getUserData()
+  {
+    return _userData;
+  }
+  void setUserData(const std::any& userData)
+  {
+    _userData = userData;
+  }
+
 private:
   TcpConnectionPtr _conn;
   HttpCallback _writeCompleteCallback;
+  HttpCallback _destroyCallback;
+  std::any _userData;
+
+  void setMessageCallback(const ParseCallback& cb)
+  {
+    parser.setMessageCallback(cb);
+  }
 
 public:
   HttpParser parser;

@@ -2,15 +2,17 @@
 #define __HTTPCLIENT_HPP__
 
 #include "TcpClient.hpp"
-#include "HttpParser.hpp"
 #include "HttpContext.hpp"
 
 class HttpClient
 {
+  typedef class HttpContext<HttpResponse> HttpContext;
+  typedef typename HttpContext::HttpParser HttpParser;
+  typedef typename HttpContext::HttpCallback HttpCallback;
+
 public:
   HttpClient(EventLoop* loop, const InetAddress& connAddr)
     : _client(loop, connAddr)
-    , parser(HTTP_RESPONSE)
   {
     _client.setConnectCallback([&](const TcpConnectionPtr& conn) { initConnection(conn); });
     _client.setCloseCallback([&](const TcpConnectionPtr& conn) { deleteConnection(conn); });
@@ -29,6 +31,14 @@ public:
   {
     _client.start();
   }
+  void stop()
+  {
+    _client.stop();
+  }
+  void shutdown()
+  {
+    _client.shutdown();
+  }
 
   void setConnectCallback(HttpCallback cb)
   {
@@ -40,15 +50,30 @@ public:
     _responseCallback = std::move(cb);
   }
 
+  void setWriteCompleteCallback(HttpCallback cb)
+  {
+    _writeCompleteCallback = std::move(cb);
+  }
+
+  void setCloseCallback(HttpCallback cb)
+  {
+    _closeCallback = std::move(cb);
+  }
+
 private:
   TcpClient _client;
-  HttpCallback _responseCallback;
   HttpCallback _connectCallback;
+  HttpCallback _writeCompleteCallback;
+  HttpCallback _responseCallback;
+  HttpCallback _closeCallback;
 
   void initConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn, HTTP_RESPONSE);
-    ctx->parser.setMessageCallback([this, ctx](const HttpParser&) { _responseCallback(*ctx); });
+    HttpContext* ctx = new HttpContext(conn);
+    ctx->setMessageCallback([this, ctx](const HttpParser&) {
+      if (_responseCallback)
+        _responseCallback(*ctx);
+    });
     conn->setUserData(ctx);
     if (_connectCallback)
       _connectCallback(*ctx);
@@ -57,6 +82,8 @@ private:
   void deleteConnection(const TcpConnectionPtr& conn)
   {
     HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
+    if (_closeCallback)
+      _closeCallback(*ctx);
     delete ctx;
   }
 
@@ -67,10 +94,12 @@ private:
     buffer->popFront();
   }
 
-  void writeCompleteCallback(const TcpConnectionPtr& conn) {}
-
-public:
-  HttpParser parser;
+  void writeCompleteCallback(const TcpConnectionPtr& conn)
+  {
+    HttpContext* ctx = new HttpContext(conn);
+    if (_writeCompleteCallback)
+      _writeCompleteCallback(*ctx);
+  }
 };
 
 #endif
