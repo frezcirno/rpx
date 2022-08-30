@@ -2,14 +2,14 @@
 #define __SOCKET_HPP__
 
 #include "Utils.hpp"
+#include <netdb.h>
 #include <arpa/inet.h>
-#include <assert.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/socket.h>
 #include <stdlib.h>
 #include <string.h>
 #include <string>
-#include <sys/socket.h>
 #include <unistd.h>
 
 struct sockaddr* sockaddr_cast(struct sockaddr_in* addr)
@@ -113,12 +113,24 @@ bool isSelfConnect(int sockfd)
 class InetAddress
 {
 public:
-  InetAddress(const char* ip, uint16_t port)
+  InetAddress(const char* host, uint16_t port)
   {
     memset(&_addr, 0, sizeof(_addr));
     _addr.sin_family = AF_INET;
     _addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip, &_addr.sin_addr);
+    if (host == nullptr) {
+      _addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    } else {
+      _addr.sin_addr.s_addr = inet_addr(host);
+      if (_addr.sin_addr.s_addr == INADDR_NONE) {
+        struct hostent* hent = gethostbyname(host);
+        if (hent == nullptr) {
+          herror("gethostbyname");
+          abort();
+        }
+        _addr.sin_addr = *reinterpret_cast<struct in_addr*>(hent->h_addr);
+      }
+    }
   }
   explicit InetAddress(uint16_t port = 0)
     : InetAddress("0.0.0.0", port)
@@ -135,7 +147,7 @@ public:
   {
     return inet_ntoa(_addr.sin_addr);
   }
-  int port() const
+  uint16_t port() const
   {
     return ntohs(_addr.sin_port);
   }
