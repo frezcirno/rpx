@@ -31,7 +31,7 @@ public:
   }
   ~EventLoopThreadPool() {}
 
-  EventLoop* getNextLoop()
+  EventLoop* getNextLoop() const
   {
     assert(_baseLoop->isInEventLoop());
     EventLoop* loop = _loops[_cnt++];
@@ -46,7 +46,7 @@ private:
   ThreadPool _pool;
   std::vector<EventLoop*> _loops;
   std::atomic<int> _ready;
-  int _cnt;
+  mutable int _cnt;
 
   void eventloopTask(EventLoop** ret, ThreadInitCallback cb)
   {
