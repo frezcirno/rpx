@@ -43,7 +43,8 @@ public:
   void stop()
   {
     _running = false;
-    _loop->queueInLoop([&] {
+    // CHECKME: queue or run?
+    _loop->runInLoop([&, that = shared_from_this()] {
       if (_state == CONNECTING) {
         setState(DISCONNECTED);
         int sockfd = destroyChannel();
@@ -159,7 +160,7 @@ private:
     _channel->unsetAllInterest();
     _channel->remove();
     int sockfd = _channel->fd();
-    // free the resource
+    // Can't reset _channel here as we are in Channel::handleEvent()
     _loop->queueInLoop([&] { _channel.reset(); });
     return sockfd;
   }

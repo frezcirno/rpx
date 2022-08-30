@@ -15,10 +15,27 @@ public:
     , _connector(new Connector(loop, serverAddr))
     , _running(false)
     , _reconnect(false)
+    , _zc(zlog_get_category("TcpClient"))
   {
     _connector->setNewConnectionCallback([&](int sockfd) { newConnection(sockfd); });
   }
-  ~TcpClient() {}
+  ~TcpClient()
+  {
+    TcpConnectionPtr conn;
+    bool unique = false;
+    {
+      std::lock_guard lock(_mutex);
+      unique = _connection.unique();
+      conn = _connection;
+    }
+    if (conn) {
+      assert(conn->getLoop() == _loop);
+      if (unique)
+        conn->forceClose();
+    } else {
+      _connector->stop();
+    }
+  }
 
   EventLoop* getLoop() const
   {
@@ -91,6 +108,8 @@ private:
   TcpCallback _userWriteCompleteCallback;
   TcpCallback _userCloseCallback;
 
+  zlog_category_t* _zc;
+
   void newConnection(int sockfd)
   {
     assert(_loop->isInEventLoop());
@@ -115,6 +134,7 @@ private:
     assert(_loop == conn->getLoop());
     {
       std::lock_guard lock(_mutex);
+      assert(_connection == conn);
       _connection.reset();
     }
     // CHECKME: capture conn by value or reference?
