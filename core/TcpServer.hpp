@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <iostream>
 #include <unordered_map>
+#include <zlog.h>
 #include "Socket.hpp"
 #include "Acceptor.hpp"
 #include "EventLoop.hpp"
@@ -19,6 +20,7 @@ public:
     : _baseLoop(baseLoop)
     , _addr(listenAddr)
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
+    , _zc(zlog_get_category("TcpServer"))
     , _pool(baseLoop, threadCount, cb)
   {
     // Ignore SIGPIPE
@@ -27,7 +29,15 @@ public:
     _acceptor->setNewConnectionCallback(
       [&](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
   }
-  ~TcpServer() {}
+  ~TcpServer()
+  {
+    assert(_baseLoop->isInEventLoop());
+    for (auto& [fd, _conn] : _connections) {
+      TcpConnectionPtr conn(_conn);
+      _conn.reset();
+      conn->getLoop()->runInLoop([conn] { conn->connectDestroyed(NULL); });
+    }
+  }
 
   EventLoop* getBaseLoop() const
   {
@@ -37,7 +47,7 @@ public:
   void start()
   {
     // make acceptor start listening
-    std::cout << "listening on " << _addr.toIpPort() << std::endl;
+    zlog_info(_zc, "listening on %s", _addr.toIpPort().c_str());
     _baseLoop->runInLoop([&] { _acceptor->listen(); });
   }
 
@@ -70,6 +80,8 @@ private:
   TcpMessageCallback _userMessageCallback;
   TcpCallback _userWriteCompleteCallback;
   TcpCallback _userCloseCallback;
+
+  zlog_category_t* _zc;
 
   void handleNewConnection(int sockfd, const InetAddress& peerAddr)
   {
