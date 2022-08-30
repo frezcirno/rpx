@@ -26,12 +26,15 @@ public:
     , _socket(new Socket(sockfd))
     , _readBuffer(1024)
     , _writeBuffer(1024, 20)
+    , _state(CONNECTING)
+    , _zc(zlog_get_category("TcpConnection"))
   {
     _channel->setReadCallback([&] { handleRead(); });
     _channel->setWriteCallback([&] { handleWrite(); });
     _channel->setCloseCallback([&] { handleClose(); });
     _channel->setErrorCallback([&] { handleError(); });
     _socket->setKeepAlive(true);
+    zlog_info(_zc, "TcpConnection::ctor[%d] to %s", sockfd, peerAddr.toIpPort().c_str());
   }
   ~TcpConnection() {}
 
@@ -74,7 +77,8 @@ public:
       written = ::write(_channel->fd(), data, len);
       if (written < 0) {
         if (errno != EWOULDBLOCK) {
-          perror("write");
+          char _errbuf[100];
+          zlog_error(_zc, "write: %s", strerror_r(errno, _errbuf, sizeof(_errbuf)));
           return written;
         }
         written = 0;
@@ -105,7 +109,21 @@ public:
 
   void shutdown()
   {
-    _loop->runInLoop([&] { _socket->shutdownWrite(); });
+    auto state = CONNECTED;
+    if (_state.compare_exchange_strong(state, DISCONNECTING))
+      _loop->runInLoop([&] { _socket->shutdownWrite(); });
+  }
+
+  void forceClose()
+  {
+    // the DISCONNECTED is the final state, so it should be safe
+    if (_state.load() == DISCONNECTED)
+      return;
+
+    auto state = _state.exchange(DISCONNECTING);
+    if (state == CONNECTED || state == DISCONNECTING) {
+      _loop->queueInLoop([that = shared_from_this()] { that->handleClose(); });
+    }
   }
 
   std::any& getUserData()
@@ -117,11 +135,21 @@ public:
     _userData = userData;
   }
 
+public:
+  enum StateE
+  {
+    CONNECTING = 0,
+    CONNECTED,
+    DISCONNECTING,
+    DISCONNECTED,
+  };
+
 private:
   EventLoop* _loop;
   std::unique_ptr<Channel> _channel;
   InetAddress _peerAddr;
   std::unique_ptr<Socket> _socket;
+  std::atomic<StateE> _state;
 
   TcpCallback _connectCallback;
   TcpMessageCallback _messageCallback;
@@ -133,22 +161,32 @@ private:
 
   std::any _userData;
 
+  zlog_category_t* _zc;
+
   void connectEstablished()
   {
     assert(_loop->isInEventLoop());
+    assert(_state.exchange(CONNECTED) == CONNECTING);
     _channel->tie(shared_from_this());
     _channel->setReadInterest();
 
     _connectCallback(shared_from_this());
   }
 
+  /**
+   * connectDestroyed()
+   *
+   * Cannot be called in handleClose() -> _closeCallback()
+   */
   void connectDestroyed(const TcpCallback& userCloseCallback)
   {
     assert(_loop->isInEventLoop());
-    _channel->unsetAllInterest();
+    auto state = CONNECTED;
+    if (_state.compare_exchange_strong(state, DISCONNECTED))
+      _channel->unsetAllInterest();
+    _channel->remove();
     if (userCloseCallback)
       userCloseCallback(shared_from_this());
-    _channel->remove();
   }
 
   // Wrappers for the callbacks to be called from the event loop
@@ -195,6 +233,8 @@ private:
   void handleClose()
   {
     assert(_loop->isInEventLoop());
+    auto oldstate = _state.exchange(DISCONNECTED);
+    assert(oldstate == CONNECTED || oldstate == DISCONNECTING);
     _channel->unsetAllInterest();
 
     TcpConnectionPtr guardThis(shared_from_this());
@@ -206,11 +246,11 @@ private:
   void handleError()
   {
     int rv = ::getSocketError(_channel->fd());
-    printf("TcpConnection::handleError [%s:%d] - SO_ERROR = %d, %s\n",
-           _peerAddr.ip().c_str(),
-           _peerAddr.port(),
-           rv,
-           strerror(rv));
+    zlog_error(_zc,
+               "TcpConnection::handleError [%s] - SO_ERROR = %d, %s\n",
+               _peerAddr.toIpPort().c_str(),
+               rv,
+               strerror(rv));
   }
 };
 
