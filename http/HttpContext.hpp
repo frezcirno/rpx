@@ -23,25 +23,31 @@ class HttpContext
 public:
   typedef class HttpParser<T> HttpParser;
   typedef typename HttpParser::ParseCallback ParseCallback;
-  typedef typename std::function<void(HttpContext&)> HttpCallback;
+  typedef std::shared_ptr<HttpContext> HttpContextPtr;
+  typedef typename std::function<void(HttpContextPtr)> HttpCallback;
+  typedef typename std::function<void()> HttpCtxCallback;
 
 private:
   HttpContext(TcpConnectionPtr conn)
     : _conn(conn)
-  {
-    _conn->setWriteCompleteCallback([&](const TcpConnectionPtr& conn) {
-      HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
-      if (_writeCompleteCallback)
-        _writeCompleteCallback(*ctx);
-    });
-  }
-  ~HttpContext()
-  {
-    if (_destroyCallback)
-      _destroyCallback(*this);
-  }
+  {}
 
 public:
+  template<typename... U>
+  static HttpContextPtr create(U&&... args)
+  {
+    struct MakeSharedEnabler : public HttpContext
+    {
+      MakeSharedEnabler(U&&... args)
+        : HttpContext(std::forward<U>(args)...)
+      {}
+    };
+
+    return std::make_shared<MakeSharedEnabler>(std::forward<U>(args)...);
+  }
+
+  ~HttpContext() {}
+
   const TcpConnectionPtr& getConn() const
   {
     return _conn;
@@ -51,9 +57,9 @@ public:
     return _conn->getLoop();
   }
 
-  void setDestroyCallback(HttpCallback cb)
+  std::shared_ptr<T> getMessage() const
   {
-    _destroyCallback = std::move(cb);
+    return parser.getMessage();
   }
 
   void startRequest(llhttp_method_t method, const std::string& url)
@@ -89,11 +95,6 @@ public:
   int endHeaders()
   {
     return _conn->write("\r\n", 2);
-  }
-
-  void setWriteCompleteCallback(HttpCallback cb)
-  {
-    _writeCompleteCallback = std::move(cb);
   }
 
   int send(const std::string& contents)
@@ -145,19 +146,55 @@ public:
     _userData = userData;
   }
 
+  /**
+   * setWriteCompleteCallback() - set write complete callback
+   *
+   * context-level callback, only used in server incoming connection
+   */
+  void setWriteCompleteCallback(HttpCtxCallback cb)
+  {
+    _writeCompleteCallback = std::move(cb);
+  }
+
+  /**
+   * setCloseCallback() - set close callback
+   *
+   * context-level callback, only used in server incoming connection
+   */
+  void setCloseCallback(HttpCtxCallback cb)
+  {
+    _closeCallback = std::move(cb);
+  }
+
 private:
   TcpConnectionPtr _conn;
-  HttpCallback _writeCompleteCallback;
-  HttpCallback _destroyCallback;
   std::any _userData;
+  HttpParser parser;
+  HttpCtxCallback _writeCompleteCallback;
+  HttpCtxCallback _closeCallback;
 
+  void setHeaderCallback(const ParseCallback& cb)
+  {
+    parser.setHeaderCallback(cb);
+  }
   void setMessageCallback(const ParseCallback& cb)
   {
     parser.setMessageCallback(cb);
   }
-
-public:
-  HttpParser parser;
+  void closeCallback()
+  {
+    if (_closeCallback)
+      _closeCallback();
+  }
+  void writeCompleteCallback()
+  {
+    if (_writeCompleteCallback)
+      _writeCompleteCallback();
+  }
+  llhttp_errno_t advance(const char* data, size_t len)
+  {
+    return parser.advance(data, len);
+  }
 };
 
 #endif

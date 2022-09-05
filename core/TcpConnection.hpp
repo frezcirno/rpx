@@ -34,7 +34,6 @@ public:
     _channel->setCloseCallback([&] { handleClose(); });
     _channel->setErrorCallback([&] { handleError(); });
     _socket->setKeepAlive(true);
-    zlog_info(_zc, "TcpConnection::ctor[%d] to %s", sockfd, peerAddr.toIpPort().c_str());
   }
   ~TcpConnection() {}
 

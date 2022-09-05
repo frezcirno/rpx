@@ -9,11 +9,12 @@
 #include "HttpContext.hpp"
 #include "HttpClient.hpp"
 
-class ProxyHandler : public HttpHandler
+class ProxyHandler
 {
   typedef std::shared_ptr<HttpClient> HttpClientPtr;
   typedef std::shared_ptr<HttpRequest> HttpRequestPtr;
   typedef std::shared_ptr<HttpResponse> HttpResponsePtr;
+  typedef std::shared_ptr<HttpContext<HttpRequest>> HttpContextPtr;
 
 public:
   ProxyHandler(const std::string& host, uint16_t port)
@@ -23,40 +24,40 @@ public:
   {}
   ~ProxyHandler() {}
 
-  void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server)
+  void operator()(int prefixLen, HttpContextPtr ctx, HttpServer* server)
   {
-    HttpRequestPtr msg = ctx.parser.getMessage();
-    dzlog_info("ProxyHandler: %.*s", (int)msg->path.size(), msg->path.c_str());
+    HttpRequestPtr msg = ctx->getMessage();
     std::string upPath = msg->path.substr(prefixLen);
     if (upPath.empty())
       upPath.assign("/");
-    HttpClientPtr client = std::make_shared<HttpClient>(ctx.getLoop(), _upAddr);
+    HttpClientPtr client = std::make_shared<HttpClient>(ctx->getLoop(), _upAddr);
     msg->headers.insert_or_assign("Host", _upAddr.toIpPort());
-    msg->headers.insert_or_assign("X-Forwarded-For", ctx.getConn()->getPeerAddr().toIpPort());
-    client->setConnectCallback([msg, upPath](auto& upCtx) {
-      upCtx.startRequest(msg->method, upPath);
+    msg->headers.insert_or_assign("X-Forwarded-For", ctx->getConn()->getPeerAddr().toIpPort());
+    client->setConnectCallback([msg, upPath](auto upCtx) {
+      upCtx->startRequest(msg->method, upPath);
       for (auto& [key, value] : msg->headers)
-        upCtx.sendHeader(key, value);
-      upCtx.endHeaders();
-      upCtx.send(msg->body);
+        upCtx->sendHeader(key, value);
+      upCtx->endHeaders();
+      upCtx->send(msg->body);
     });
-    client->setResponseCallback([&](auto& upCtx) {
-      HttpResponsePtr msg = upCtx.parser.getMessage();
-      ctx.startResponse(msg->status_code, msg->status_message);
+    client->setResponseCallback([ctx](auto upCtx) {
+      HttpResponsePtr msg = upCtx->getMessage();
+      ctx->startResponse(msg->status_code, msg->status_message);
       for (auto& [key, value] : msg->headers)
-        ctx.sendHeader(key, value);
-      ctx.endHeaders();
-      ctx.send(msg->body);
+        ctx->sendHeader(key, value);
+      ctx->endHeaders();
+      ctx->send(msg->body);
     });
-    client->setCloseCallback([&](auto& upCtx) { ctx.shutdown(); });
-    ctx.setUserData(client);
-    ctx.setDestroyCallback([](HttpContext& ctx) {
-      HttpClientPtr upClient = std::any_cast<HttpClientPtr>(ctx.getUserData());
-      upClient->setConnectCallback(NULL);
-      upClient->setResponseCallback(NULL);
-      upClient->setCloseCallback([upClient](auto& upCtx) {
+    client->setCloseCallback([ctx](auto upCtx) { ctx->shutdown(); });
+    ctx->setUserData(client);
+    ctx->setCloseCallback([ctx]() {
+      HttpClientPtr upClient = std::any_cast<HttpClientPtr>(ctx->getUserData());
+      upClient->setConnectCallback(nullptr);
+      upClient->setResponseCallback(nullptr);
+      upClient->setWriteCompleteCallback(nullptr);
+      upClient->setCloseCallback([upClient](auto upCtx) {
         // Hack: Hold a reference of itself, and release it after closeCallback()
-        upClient->setCloseCallback(NULL);
+        upClient->setCloseCallback(nullptr);
       });
       upClient->shutdown();
     });

@@ -11,6 +11,7 @@ class HttpServer
   typedef class HttpContext<HttpRequest> HttpContext;
   typedef typename HttpContext::HttpParser HttpParser;
   typedef typename HttpContext::HttpCallback HttpCallback;
+  typedef typename HttpContext::HttpContextPtr HttpContextPtr;
 
 public:
   HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum,
@@ -67,33 +68,42 @@ private:
 
   void initConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn);
-    ctx->setMessageCallback([this, ctx](const HttpParser& parser) { _requestCallback(*ctx); });
+    HttpContextPtr ctx = HttpContext::create(conn);
     conn->setUserData(ctx);
+    // ctx->setHeaderCallback([&, ctx](const HttpParser& parser) { _requestCallback(ctx); });
+    ctx->setMessageCallback([&, ctx](const HttpParser& parser) { _requestCallback(ctx); });
     if (_connectCallback)
-      _connectCallback(*ctx);
+      _connectCallback(ctx);
   }
 
   void deleteConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
+    // context close callback (per-context)
+    ctx->closeCallback();
+    ctx->setHeaderCallback(nullptr);
+    ctx->setMessageCallback(nullptr);
+    ctx->setWriteCompleteCallback(nullptr);
+    ctx->setCloseCallback(nullptr);
+    // server close callback (per-server)
     if (_closeCallback)
-      _closeCallback(*ctx);
-    delete ctx;
+      _closeCallback(ctx);
+    conn->setUserData(nullptr);
   }
 
   void handleMessage(const TcpConnectionPtr& conn, StreamBuffer* buffer)
   {
-    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
-    ctx->parser.advance(buffer->data(), buffer->size());
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
+    ctx->advance(buffer->data(), buffer->size());
     buffer->popFront();
   }
 
   void writeCompleteCallback(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn);
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
+    ctx->writeCompleteCallback();
     if (_writeCompleteCallback)
-      _writeCompleteCallback(*ctx);
+      _writeCompleteCallback(ctx);
   }
 };
 

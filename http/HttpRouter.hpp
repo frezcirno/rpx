@@ -11,19 +11,12 @@
 #include "TcpConnection.hpp"
 #include "HttpServer.hpp"
 
-class HttpHandler : noncopyable
-{
-protected:
-  typedef class HttpContext<HttpRequest> HttpContext;
-
-public:
-  virtual ~HttpHandler() {}
-  virtual void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server) = 0;
-};
+typedef std::function<void(int, HttpContext<HttpRequest>::HttpContextPtr, HttpServer*)> HttpHandler;
 
 class HttpRouter : noncopyable
 {
   typedef class HttpContext<HttpRequest> HttpContext;
+  typedef typename HttpContext::HttpContextPtr HttpContextPtr;
 
 private:
   class Route : noncopyable
@@ -31,15 +24,15 @@ private:
   public:
     virtual ~Route() {}
     virtual int match(const std::string& url) const = 0;
-    virtual void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server) = 0;
+    virtual void handleRequest(int prefixLen, HttpContextPtr ctx, HttpServer* server) = 0;
   };
 
   class SimpleRoute : public Route
   {
   public:
-    SimpleRoute(const std::string& url, HttpHandler* handler)
+    SimpleRoute(const std::string& url, HttpHandler handler)
       : _url(url)
-      , _handler(handler)
+      , _handler(std::move(handler))
     {}
     ~SimpleRoute() {}
     int match(const std::string& url) const override
@@ -52,21 +45,21 @@ private:
         return 0;
       return _url.size();
     }
-    void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server) override
+    void handleRequest(int prefixLen, HttpContextPtr ctx, HttpServer* server) override
     {
-      _handler->handleRequest(prefixLen, ctx, server);
+      _handler(prefixLen, ctx, server);
     }
 
   private:
     std::string _url;
-    std::shared_ptr<HttpHandler> _handler;
+    HttpHandler _handler;
   };
 
   class RegexRoute : public Route
   {
   public:
-    RegexRoute(const std::string& pattern, HttpHandler* handler)
-      : _handler(handler)
+    RegexRoute(const std::string& pattern, HttpHandler handler)
+      : _handler(std::move(handler))
     {
       const char* errptr;
       int erroffset;
@@ -94,14 +87,14 @@ private:
       assert(rc == 1);
       return ovector[1];
     }
-    void handleRequest(int prefixLen, HttpContext& ctx, HttpServer* server)
+    void handleRequest(int prefixLen, HttpContextPtr ctx, HttpServer* server)
     {
-      _handler->handleRequest(prefixLen, ctx, server);
+      _handler(prefixLen, ctx, server);
     }
 
   private:
     pcre* _pcre;
-    std::shared_ptr<HttpHandler> _handler;
+    HttpHandler _handler;
   };
 
 public:
@@ -111,19 +104,19 @@ public:
   {}
   ~HttpRouter() {}
 
-  void addSimpleRoute(const std::string& pattern, HttpHandler* handler)
+  void addSimpleRoute(const std::string& pattern, HttpHandler handler)
   {
-    _routes.push_back(std::make_unique<SimpleRoute>(pattern, handler));
+    _routes.push_back(std::make_unique<SimpleRoute>(pattern, std::move(handler)));
   }
 
-  void addRegexRoute(const std::string& pattern, HttpHandler* handler)
+  void addRegexRoute(const std::string& pattern, HttpHandler handler)
   {
-    _routes.push_back(std::make_unique<RegexRoute>(pattern, handler));
+    _routes.push_back(std::make_unique<RegexRoute>(pattern, std::move(handler)));
   }
 
-  void handleRequest(HttpContext& ctx)
+  void handleRequest(HttpContextPtr ctx)
   {
-    const auto& path = ctx.parser.getMessage()->path;
+    const auto& path = ctx->getMessage()->path;
     for (auto& route : _routes) {
       int len = route->match(path);
       if (len) {
@@ -131,7 +124,7 @@ public:
         return;
       }
     }
-    ctx.sendError(404);
+    ctx->sendError(404);
   }
 
 private:

@@ -28,14 +28,23 @@ int main(int argc, char const* argv[])
   EventLoop loop;
   HttpServer server(&loop, InetAddress(8080), true, threadNum);
   HttpRouter router(&server);
-  router.addSimpleRoute("/static", new StaticHandler("."));
-  router.addSimpleRoute("/big", new StaticHandler("./static/big_file", true));
-  router.addSimpleRoute("/a", new StaticHandler("./static/a", true));
-  router.addSimpleRoute("/b", new StaticHandler("./static/b", true));
-  router.addSimpleRoute("/baidu", new ProxyHandler("www.baidu.com", 80));
-  router.addSimpleRoute("/self", new ProxyHandler("127.0.0.1", 8080));
-  router.addSimpleRoute("/other", new ProxyHandler("127.0.0.1", 8081));
-  server.setRequestCallback([&router](auto& ctx) { router.handleRequest(ctx); });
+  router.addSimpleRoute("/ping",
+                        [](int, HttpContext<HttpRequest>::HttpContextPtr ctx, HttpServer*) {
+                          ctx->startResponse(200);
+                          ctx->sendHeader("Content-Type", "text/plain");
+                          ctx->sendHeader("Content-Length", "4");
+                          ctx->sendHeader("Connection", "close");
+                          ctx->endHeaders();
+                          ctx->send("pong", 4);
+                          ctx->shutdown();
+                        });
+  router.addSimpleRoute("/big", StaticHandler("./static/big_file", true));
+  router.addSimpleRoute("/a", StaticHandler("./static/a", true));
+  router.addSimpleRoute("/b", StaticHandler("./static/b", true));
+  router.addSimpleRoute("/baidu", ProxyHandler("www.baidu.com", 80));
+  router.addSimpleRoute("/self", ProxyHandler("127.0.0.1", 8080));
+  router.addSimpleRoute("/other", ProxyHandler("127.0.0.1", 8081));
+  server.setRequestCallback([&router](auto ctx) { router.handleRequest(ctx); });
   server.start();
 
   loop.loop();

@@ -9,6 +9,7 @@ class HttpClient
   typedef class HttpContext<HttpResponse> HttpContext;
   typedef typename HttpContext::HttpParser HttpParser;
   typedef typename HttpContext::HttpCallback HttpCallback;
+  typedef std::shared_ptr<HttpContext> HttpContextPtr;
 
 public:
   HttpClient(EventLoop* loop, const InetAddress& connAddr)
@@ -69,36 +70,40 @@ private:
 
   void initConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn);
+    HttpContextPtr ctx = HttpContext::create(conn);
+    conn->setUserData(ctx);
     ctx->setMessageCallback([&, ctx](const HttpParser&) {
       if (_responseCallback)
-        _responseCallback(*ctx);
+        _responseCallback(ctx);
     });
-    conn->setUserData(ctx);
     if (_connectCallback)
-      _connectCallback(*ctx);
+      _connectCallback(ctx);
   }
 
   void deleteConnection(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
+    ctx->setHeaderCallback(nullptr);
+    ctx->setMessageCallback(nullptr);
+    ctx->setWriteCompleteCallback(nullptr);
+    ctx->setCloseCallback(nullptr);
     if (_closeCallback)
-      _closeCallback(*ctx);
-    delete ctx;
+      _closeCallback(ctx);
+    conn->setUserData(nullptr);
   }
 
   void handleMessage(const TcpConnectionPtr& conn, StreamBuffer* buffer)
   {
-    HttpContext* ctx = std::any_cast<HttpContext*>(conn->getUserData());
-    ctx->parser.advance(buffer->data(), buffer->size());
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
+    ctx->advance(buffer->data(), buffer->size());
     buffer->popFront();
   }
 
   void writeCompleteCallback(const TcpConnectionPtr& conn)
   {
-    HttpContext* ctx = new HttpContext(conn);
+    HttpContextPtr ctx = std::any_cast<HttpContextPtr>(conn->getUserData());
     if (_writeCompleteCallback)
-      _writeCompleteCallback(*ctx);
+      _writeCompleteCallback(ctx);
   }
 };
 
