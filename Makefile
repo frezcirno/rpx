@@ -10,6 +10,9 @@ all: rpx
 rpx: rpx.cpp $(CXXHEADERS)
 	$(CC) $< -o $@ -O2 $(INCLUDE) $(LDFLAGS) --std=c++17 -g -fsanitize=thread
 
+rpx-perf: rpx.cpp $(CXXHEADERS)
+	$(CC) $< -o $@ -O2 $(INCLUDE) $(LDFLAGS) --std=c++17 -g
+
 .PHONY: clean
 clean:
 	-rm -f rpx
