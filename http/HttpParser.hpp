@@ -250,7 +250,6 @@ private:
 template<>
 HttpParser<HttpRequest>::HttpParser()
 {
-
   llhttp_settings_init(&_settings);
   _settings.on_message_begin = HttpParser::on_message_begin;
   _settings.on_url = HttpParser::on_url;
@@ -271,7 +270,6 @@ HttpParser<HttpRequest>::HttpParser()
 template<>
 HttpParser<HttpResponse>::HttpParser()
 {
-
   llhttp_settings_init(&_settings);
   _settings.on_message_begin = HttpParser::on_message_begin;
   _settings.on_status = HttpParser::on_status;

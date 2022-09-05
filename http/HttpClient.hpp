@@ -70,7 +70,7 @@ private:
   void initConnection(const TcpConnectionPtr& conn)
   {
     HttpContext* ctx = new HttpContext(conn);
-    ctx->setMessageCallback([this, ctx](const HttpParser&) {
+    ctx->setMessageCallback([&, ctx](const HttpParser&) {
       if (_responseCallback)
         _responseCallback(*ctx);
     });

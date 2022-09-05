@@ -23,7 +23,7 @@ public:
     for (int i = 0; i < numThreads; i++) {
       _ready.store(0);
       // one eventloop per thread
-      _pool.addTask([this, i, cb] { eventloopTask(&_loops[i], cb); });
+      _pool.addTask([&, i, cb] { eventloopTask(&_loops[i], cb); });
       // wait until the eventloop is ready
       while (!_ready.load())
         continue;

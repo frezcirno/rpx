@@ -576,7 +576,7 @@ inline void Channel::remove()
 inline TimerQueue::Timer* TimerQueue::addTimer(TimerCallback cb, Time when, double interval)
 {
   Timer* timer = new Timer(std::move(cb), when, interval);
-  _loop->runInLoop([this, timer] { addTimerInLoop(timer); });
+  _loop->runInLoop([&, timer] { addTimerInLoop(timer); });
   return timer;
 }
 

@@ -100,7 +100,7 @@ private:
   void handleClose(const TcpConnectionPtr& conn)
   {
     // CHECKME: capture conn by value or reference?
-    _baseLoop->runInLoop([this, conn] { handleCloseInLoop(conn); });
+    _baseLoop->runInLoop([&, conn] { handleCloseInLoop(conn); });
   }
 
   void handleCloseInLoop(const TcpConnectionPtr& conn)
@@ -110,7 +110,7 @@ private:
 
     EventLoop* connLoop = conn->getLoop();
     // CHECKME: capture conn by value or reference?
-    connLoop->queueInLoop([this, conn] { conn->connectDestroyed(_userCloseCallback); });
+    connLoop->queueInLoop([&, conn] { conn->connectDestroyed(_userCloseCallback); });
   }
 };
 
