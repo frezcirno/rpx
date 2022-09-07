@@ -379,8 +379,10 @@ private:
           ch->setEvents(_events[i].events);
           channels->push_back(ch);
         }
-        if (rv == static_cast<int>(_events.size()))
+        if (rv == static_cast<int>(_events.size())) {
+          _events.clear();
           _events.resize(2 * rv);
+        }
       }
     }
 
@@ -434,20 +436,20 @@ private:
 
 public:
   EventLoop()
-    : _poller(new Poller(this))
+    : _poller(this)
     , running(true)
     , _ownerThreadId(std::this_thread::get_id())
     , _wakeupFd(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC))
-    , _wakeupChannel(new Channel(this, _wakeupFd))
-    , _timerQueue(new TimerQueue(this))
+    , _wakeupChannel(this, _wakeupFd)
+    , _timerQueue(this)
   {
-    _wakeupChannel->setReadCallback([&] { this->wakeupRead(); });
-    _wakeupChannel->setReadInterest();
+    _wakeupChannel.setReadCallback([&] { this->wakeupRead(); });
+    _wakeupChannel.setReadInterest();
   }
   ~EventLoop()
   {
-    _wakeupChannel->unsetAllInterest();
-    _wakeupChannel->remove();
+    _wakeupChannel.unsetAllInterest();
+    _wakeupChannel.remove();
     ::close(_wakeupFd);
   }
 
@@ -460,7 +462,7 @@ public:
   {
     while (running) {
       _activeChannels.clear();
-      _poller->poll(&_activeChannels);
+      _poller.poll(&_activeChannels);
       for (auto ch : _activeChannels)
         ch->handleEvent();
       std::vector<Task> tasks;
@@ -482,12 +484,12 @@ public:
 
   void addOrUpdateChannel(Channel* ch)
   {
-    _poller->addOrUpdateChannel(ch);
+    _poller.addOrUpdateChannel(ch);
   }
 
   void removeChannel(Channel* ch)
   {
-    _poller->removeChannel(ch);
+    _poller.removeChannel(ch);
   }
 
   void queueInLoop(Task cb)
@@ -514,7 +516,7 @@ public:
 
   void* runAt(Time time, TimerCallback cb)
   {
-    return _timerQueue->addTimer(std::move(cb), time, 0.0);
+    return _timerQueue.addTimer(std::move(cb), time, 0.0);
   }
 
   void* runAfter(double delayS, TimerCallback cb)
@@ -524,28 +526,28 @@ public:
 
   void* runEvery(double intervalS, TimerCallback cb)
   {
-    return _timerQueue->addTimer(std::move(cb), Time::now(), intervalS);
+    return _timerQueue.addTimer(std::move(cb), Time::now(), intervalS);
   }
 
   void cancel(void* timerId)
   {
-    return _timerQueue->cancel(static_cast<TimerQueue::Timer*>(timerId));
+    return _timerQueue.cancel(static_cast<TimerQueue::Timer*>(timerId));
   }
 
 private:
   std::vector<Channel*> _activeChannels;
-  std::unique_ptr<Poller> _poller;
+  Poller _poller;
   bool running;
   const std::thread::id _ownerThreadId;
 
   int _wakeupFd;
-  std::unique_ptr<Channel> _wakeupChannel;
+  Channel _wakeupChannel;
 
   mutable std::mutex _mutex;
   std::vector<Task> _pendingTask;
   bool _callingPendingTasks;
 
-  std::unique_ptr<TimerQueue> _timerQueue;
+  TimerQueue _timerQueue;
 
   void wakeupRead()
   {

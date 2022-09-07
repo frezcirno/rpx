@@ -58,13 +58,13 @@ public:
   {
     _messageCallback = std::move(cb);
   }
-  void setCloseCallback(TcpCallback cb)
-  {
-    _closeCallback = std::move(cb);
-  }
   void setWriteCompleteCallback(TcpCallback cb)
   {
     _writeCompleteCallback = std::move(cb);
+  }
+  void setCloseCallback(TcpCallback cb)
+  {
+    _closeCallback = std::move(cb);
   }
 
   int write(const char* data, size_t len)
