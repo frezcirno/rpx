@@ -19,15 +19,11 @@ public:
     , _pool(numThreads)
     , _cnt(0)
   {
+    CountDownLatch initLatch(numThreads);
     _loops.resize(numThreads);
-    for (int i = 0; i < numThreads; i++) {
-      _ready.store(0);
-      // one eventloop per thread
-      _pool.addTask([&, i, cb] { eventloopTask(&_loops[i], cb); });
-      // wait until the eventloop is ready
-      while (!_ready.load())
-        continue;
-    }
+    for (int i = 0; i < numThreads; i++)
+      _pool.addTask([&, loop = &_loops[i]] { eventloopTask(loop, initLatch, cb); });
+    initLatch.wait();
   }
   ~EventLoopThreadPool() {}
 
@@ -40,19 +36,17 @@ public:
     return loop;
   }
 
-
 private:
   EventLoop* _baseLoop;
   ThreadPool _pool;
   std::vector<EventLoop*> _loops;
-  std::atomic<int> _ready;
   mutable int _cnt;
 
-  void eventloopTask(EventLoop** ret, ThreadInitCallback cb)
+  void eventloopTask(EventLoop** ret, CountDownLatch& initLatch, const ThreadInitCallback& cb)
   {
     EventLoop loop;
     *ret = &loop;
-    _ready.store(1);
+    initLatch.countDown();
     if (cb)
       cb(&loop);
     loop.loop();
