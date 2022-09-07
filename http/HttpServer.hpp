@@ -15,8 +15,8 @@ class HttpServer
 
 public:
   HttpServer(EventLoop* loop, const InetAddress& listenAddr, bool reusePort, int threadNum,
-             ThreadInitCallback cb = ThreadInitCallback())
-    : _server(loop, listenAddr, reusePort, threadNum, cb)
+             const ThreadInitCallback& init = nullptr)
+    : _server(loop, listenAddr, reusePort, threadNum, init)
     , _zc(zlog_get_category("HttpServer"))
   {
     _server.setConnectCallback([&](const TcpConnectionPtr& conn) { initConnection(conn); });

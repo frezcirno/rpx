@@ -13,8 +13,7 @@ typedef std::function<void(EventLoop*)> ThreadInitCallback;
 class EventLoopThreadPool
 {
 public:
-  EventLoopThreadPool(EventLoop* baseLoop, int numThreads,
-                      ThreadInitCallback cb = ThreadInitCallback())
+  EventLoopThreadPool(EventLoop* baseLoop, int numThreads, const ThreadInitCallback& init = nullptr)
     : _baseLoop(baseLoop)
     , _pool(numThreads)
     , _cnt(0)
@@ -22,7 +21,7 @@ public:
     CountDownLatch initLatch(numThreads);
     _loops.resize(numThreads);
     for (int i = 0; i < numThreads; i++)
-      _pool.addTask([&, loop = &_loops[i]] { eventloopTask(loop, initLatch, cb); });
+      _pool.addTask([&, loop = &_loops[i]] { eventloopTask(loop, initLatch, init); });
     initLatch.wait();
   }
   ~EventLoopThreadPool() {}
@@ -46,9 +45,9 @@ private:
   {
     EventLoop loop;
     *ret = &loop;
-    initLatch.countDown();
     if (cb)
       cb(&loop);
+    initLatch.countDown();
     loop.loop();
   }
 };

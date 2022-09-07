@@ -25,9 +25,8 @@ public:
   {
     std::lock_guard lock(mutex);
     --count;
-    if (count == 0) {
+    if (count == 0)
       cond.notify_all();
-    }
   }
   int getCount()
   {

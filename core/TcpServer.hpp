@@ -16,18 +16,18 @@ class TcpServer
 {
 public:
   TcpServer(EventLoop* baseLoop, const InetAddress& listenAddr, bool reusePort, int threadCount,
-            ThreadInitCallback cb = ThreadInitCallback())
+            const ThreadInitCallback& init = nullptr)
     : _baseLoop(baseLoop)
     , _addr(listenAddr)
     , _acceptor(new Acceptor(baseLoop, listenAddr, reusePort))
     , _zc(zlog_get_category("TcpServer"))
-    , _pool(baseLoop, threadCount, cb)
+    , _pool(baseLoop, threadCount, init)
   {
     // Ignore SIGPIPE
-    static auto init = signal(SIGPIPE, SIG_IGN);
+    static auto _ = signal(SIGPIPE, SIG_IGN);
 
     _acceptor->setNewConnectionCallback(
-      [&](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
+      [this](int sockfd, const InetAddress& peerAddr) { handleNewConnection(sockfd, peerAddr); });
   }
   ~TcpServer()
   {
@@ -35,7 +35,7 @@ public:
     for (auto& [fd, _conn] : _connections) {
       TcpConnectionPtr conn(_conn);
       _conn.reset();
-      conn->getLoop()->runInLoop([conn] { conn->connectDestroyed(NULL); });
+      conn->getLoop()->runInLoop([conn] { conn->connectDestroyed(); });
     }
   }
 
@@ -67,6 +67,10 @@ public:
   {
     _userCloseCallback = std::move(cb);
   }
+  void setErrorCallback(TcpCallback cb)
+  {
+    _userErrorCallback = std::move(cb);
+  }
 
 private:
   EventLoop* _baseLoop;
@@ -80,6 +84,7 @@ private:
   TcpMessageCallback _userMessageCallback;
   TcpCallback _userWriteCompleteCallback;
   TcpCallback _userCloseCallback;
+  TcpCallback _userErrorCallback;
 
   zlog_category_t* _zc;
 
@@ -89,11 +94,16 @@ private:
     EventLoop* ioLoop = _pool.getNextLoop();
     auto conn = std::make_shared<TcpConnection>(ioLoop, sockfd, peerAddr);
     _connections.insert({sockfd, conn});
-    conn->setConnectCallback(_userConnectCallback);
     conn->setMessageCallback(_userMessageCallback);
     conn->setWriteCompleteCallback(_userWriteCompleteCallback);
     conn->setCloseCallback([&](const TcpConnectionPtr& conn) { handleClose(conn); });
-    ioLoop->runInLoop([conn] { conn->connectEstablished(); });
+    conn->setErrorCallback(_userErrorCallback);
+    // we are in the base loop, so we cannot call connectEstablished directly
+    ioLoop->queueInLoop([&, conn] {
+      conn->connectEstablished();
+      if (_userConnectCallback)
+        _userConnectCallback(conn);
+    });
   }
 
   // user close callback wrapper
@@ -110,7 +120,11 @@ private:
 
     EventLoop* connLoop = conn->getLoop();
     // CHECKME: capture conn by value or reference?
-    connLoop->queueInLoop([&, conn] { conn->connectDestroyed(_userCloseCallback); });
+    connLoop->queueInLoop([&, conn] {
+      conn->connectDestroyed();
+      if (_userCloseCallback)
+        _userCloseCallback(conn);
+    });
   }
 };
 

@@ -50,10 +50,6 @@ public:
     return _peerAddr;
   }
 
-  void setConnectCallback(TcpCallback cb)
-  {
-    _connectCallback = std::move(cb);
-  }
   void setMessageCallback(TcpMessageCallback cb)
   {
     _messageCallback = std::move(cb);
@@ -65,6 +61,10 @@ public:
   void setCloseCallback(TcpCallback cb)
   {
     _closeCallback = std::move(cb);
+  }
+  void setErrorCallback(TcpCallback cb)
+  {
+    _errorCallback = std::move(cb);
   }
 
   int write(const char* data, size_t len)
@@ -106,6 +106,9 @@ public:
     return write(data.data(), data.size());
   }
 
+  /**
+   * shutdown() - shutdown write end of the connection
+   */
   void shutdown()
   {
     auto state = CONNECTED;
@@ -121,6 +124,7 @@ public:
 
     auto state = _state.exchange(DISCONNECTING);
     if (state == CONNECTED || state == DISCONNECTING) {
+      // will call _closeCallback() in the next loop
       _loop->queueInLoop([that = shared_from_this()] { that->handleClose(); });
     }
   }
@@ -150,10 +154,10 @@ private:
   Socket _socket;
   std::atomic<StateE> _state;
 
-  TcpCallback _connectCallback;
   TcpMessageCallback _messageCallback;
   TcpCallback _closeCallback;
   TcpCallback _writeCompleteCallback;
+  TcpCallback _errorCallback;
 
   StreamBuffer _readBuffer;
   StreamBuffer _writeBuffer;
@@ -168,8 +172,6 @@ private:
     assert(_state.exchange(CONNECTED) == CONNECTING);
     _channel->tie(shared_from_this());
     _channel->setReadInterest();
-    if (_connectCallback)
-      _connectCallback(shared_from_this());
   }
 
   /**
@@ -177,15 +179,13 @@ private:
    *
    * Cannot be called in handleClose() -> _closeCallback()
    */
-  void connectDestroyed(const TcpCallback& userCloseCallback)
+  void connectDestroyed()
   {
     assert(_loop->isInEventLoop());
     auto state = CONNECTED;
     if (_state.compare_exchange_strong(state, DISCONNECTED))
       _channel->unsetAllInterest();
     _channel->remove();
-    if (userCloseCallback)
-      userCloseCallback(shared_from_this());
   }
 
   // Wrappers for the callbacks to be called from the event loop
@@ -236,7 +236,6 @@ private:
     assert(oldstate == CONNECTED || oldstate == DISCONNECTING);
     _channel->unsetAllInterest();
 
-    _connectCallback = nullptr;
     _messageCallback = nullptr;
     _writeCompleteCallback = nullptr;
     if (_closeCallback) {
@@ -249,12 +248,8 @@ private:
 
   void handleError()
   {
-    int rv = ::getSocketError(_channel->fd());
-    zlog_error(_zc,
-               "TcpConnection::handleError [%s] - SO_ERROR = %d, %s\n",
-               _peerAddr.toIpPort().c_str(),
-               rv,
-               strerror(rv));
+    if (_errorCallback)
+      _errorCallback(shared_from_this());
   }
 };
 

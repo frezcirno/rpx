@@ -117,7 +117,6 @@ private:
     getPeerAddr(sockfd, peerAddr);
     // the TcpConnection is in the same loop as TcpClient
     auto conn = std::make_shared<TcpConnection>(_loop, sockfd, peerAddr);
-    conn->setConnectCallback(_userConnectCallback);
     conn->setMessageCallback(_userMessageCallback);
     conn->setWriteCompleteCallback(_userWriteCompleteCallback);
     conn->setCloseCallback([&](const TcpConnectionPtr& conn) { handleClose(conn); });
@@ -126,6 +125,7 @@ private:
       _connection = conn;
     }
     conn->connectEstablished();
+    _userConnectCallback(conn);
   }
 
   // user close callback wrapper
@@ -138,8 +138,10 @@ private:
       assert(_connection == conn);
       _connection.reset();
     }
-    // CHECKME: capture conn by value or reference?
-    _loop->queueInLoop([&, conn] { conn->connectDestroyed(_userCloseCallback); });
+
+    conn->connectDestroyed();
+    if (_userCloseCallback)
+      _userCloseCallback(conn);
 
     if (_reconnect && _running)
       _connector->restart();
