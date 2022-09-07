@@ -20,7 +20,12 @@ public:
   ProxyHandler(const std::string& host, uint16_t port)
     : _host(host)
     , _port(port)
-  {}
+  {
+    if (port == 80 || port == 443)
+      _hostPort = host;
+    else
+      _hostPort = host + ":" + std::to_string(port);
+  }
   ~ProxyHandler() {}
 
   void operator()(int prefixLen, HttpContextPtr ctx, HttpServer* server)
@@ -36,7 +41,7 @@ public:
     if (upPath.empty())
       upPath.assign("/");
     HttpClientPtr client = std::make_shared<HttpClient>(ctx->getLoop(), _upAddr);
-    msg->headers.insert_or_assign("Host", _upAddr.toIpPort());
+    msg->headers.insert_or_assign("Host", _hostPort);
     msg->headers.insert_or_assign("X-Forwarded-For", ctx->getConn()->getPeerAddr().toIpPort());
     client->setConnectCallback([msg, upPath](auto upCtx) {
       upCtx->startRequest(msg->method, upPath);
@@ -72,6 +77,7 @@ public:
 private:
   std::string _host;
   uint16_t _port;
+  std::string _hostPort;
 };
 
 #endif
