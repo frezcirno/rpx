@@ -87,7 +87,7 @@ private:
   void connect()
   {
     int sockfd = ::socket(_peerAddr.family());
-    int ret = ::connect(sockfd, _peerAddr.getSockAddr());
+    int ret = ::connect(sockfd, _peerAddr);
     if (ret < 0) {
       switch (errno) {
         case 0:

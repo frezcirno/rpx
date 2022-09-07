@@ -20,12 +20,17 @@ public:
   ProxyHandler(const std::string& host, uint16_t port)
     : _host(host)
     , _port(port)
-    , _upAddr(host.c_str(), port)
   {}
   ~ProxyHandler() {}
 
   void operator()(int prefixLen, HttpContextPtr ctx, HttpServer* server)
   {
+    InetAddress _upAddr;
+    if (!_upAddr.parseHost(_host.c_str(), _port)) {
+      ctx->send(
+        "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     HttpRequestPtr msg = ctx->getMessage();
     std::string upPath = msg->path.substr(prefixLen);
     if (upPath.empty())
@@ -67,7 +72,6 @@ public:
 private:
   std::string _host;
   uint16_t _port;
-  InetAddress _upAddr;
 };
 
 #endif

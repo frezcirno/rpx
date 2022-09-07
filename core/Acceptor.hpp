@@ -55,21 +55,23 @@ private:
     assert(_loop->isInEventLoop());
 
     InetAddress peerAddr;
-    int connfd = ::accept(socket.fd(), peerAddr.getSockAddr());
-    if (connfd < 0) {
-      if (errno == EMFILE) {
-        ::close(_idleFd);
-        _idleFd = ::accept(socket.fd(), NULL, NULL);
-        ::close(_idleFd);
-        _idleFd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+    while (true) {
+      int connfd = ::accept(socket.fd(), peerAddr);
+      if (connfd < 0) {
+        if (errno == EMFILE) {
+          ::close(_idleFd);
+          _idleFd = ::accept(socket.fd(), NULL, NULL);
+          ::close(_idleFd);
+          _idleFd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        }
+        return;
       }
-      return;
-    }
 
-    if (_newConnectionCallback)
-      _newConnectionCallback(connfd, peerAddr);
-    else
-      ::close(connfd);
+      if (_newConnectionCallback)
+        _newConnectionCallback(connfd, peerAddr);
+      else
+        ::close(connfd);
+    }
   }
 };
 

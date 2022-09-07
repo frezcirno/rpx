@@ -23,7 +23,7 @@ public:
     : _loop(loop)
     , _channel(new Channel(loop, sockfd))
     , _peerAddr(peerAddr)
-    , _socket(new Socket(sockfd))
+    , _socket(sockfd)
     , _readBuffer(1024)
     , _writeBuffer(1024, 20)
     , _state(CONNECTING)
@@ -33,7 +33,7 @@ public:
     _channel->setWriteCallback([&] { handleWrite(); });
     _channel->setCloseCallback([&] { handleClose(); });
     _channel->setErrorCallback([&] { handleError(); });
-    _socket->setKeepAlive(true);
+    _socket.setKeepAlive(true);
   }
   ~TcpConnection() {}
 
@@ -110,7 +110,7 @@ public:
   {
     auto state = CONNECTED;
     if (_state.compare_exchange_strong(state, DISCONNECTING))
-      _loop->runInLoop([&] { _socket->shutdownWrite(); });
+      _loop->runInLoop([&] { _socket.shutdownWrite(); });
   }
 
   void forceClose()
@@ -147,7 +147,7 @@ private:
   EventLoop* _loop;
   std::unique_ptr<Channel> _channel;
   InetAddress _peerAddr;
-  std::unique_ptr<Socket> _socket;
+  Socket _socket;
   std::atomic<StateE> _state;
 
   TcpCallback _connectCallback;
@@ -168,8 +168,8 @@ private:
     assert(_state.exchange(CONNECTED) == CONNECTING);
     _channel->tie(shared_from_this());
     _channel->setReadInterest();
-
-    _connectCallback(shared_from_this());
+    if (_connectCallback)
+      _connectCallback(shared_from_this());
   }
 
   /**
@@ -201,7 +201,7 @@ private:
       // the peer has nothing more to send us
       // we can safely close the connection
       handleClose();
-    } else {
+    } else if (_messageCallback) {
       _messageCallback(shared_from_this(), &_readBuffer);
     }
   }
@@ -236,10 +236,15 @@ private:
     assert(oldstate == CONNECTED || oldstate == DISCONNECTING);
     _channel->unsetAllInterest();
 
-    TcpConnectionPtr guardThis(shared_from_this());
-    _writeCompleteCallback = NULL;
-    // must be the last line
-    _closeCallback(guardThis);
+    _connectCallback = nullptr;
+    _messageCallback = nullptr;
+    _writeCompleteCallback = nullptr;
+    if (_closeCallback) {
+      TcpConnectionPtr guardThis(shared_from_this());
+      // must be the last line
+      _closeCallback(guardThis);
+      _closeCallback = nullptr;
+    }
   }
 
   void handleError()

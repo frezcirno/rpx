@@ -113,7 +113,8 @@ private:
   void newConnection(int sockfd)
   {
     assert(_loop->isInEventLoop());
-    InetAddress peerAddr = ::getPeerAddr(sockfd);
+    InetAddress peerAddr;
+    getPeerAddr(sockfd, peerAddr);
     // the TcpConnection is in the same loop as TcpClient
     auto conn = std::make_shared<TcpConnection>(_loop, sockfd, peerAddr);
     conn->setConnectCallback(_userConnectCallback);

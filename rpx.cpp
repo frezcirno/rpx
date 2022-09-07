@@ -21,23 +21,23 @@ int main(int argc, char const* argv[])
 
   int rc = dzlog_init("rpx.conf", "default");
   if (rc) {
-    printf("init fail");
+    dzlog_fatal("init fail");
     return -1;
   }
 
+  InetAddress listenAddr;
+  if (!listenAddr.parseHost("127.0.0.1", 8080)) {
+    dzlog_fatal("parseHost fail");
+    return -2;
+  }
   EventLoop loop;
-  HttpServer server(&loop, InetAddress(8080), true, threadNum);
+  HttpServer server(&loop, listenAddr, true, threadNum);
   HttpRouter router(&server);
-  router.addSimpleRoute("/ping",
-                        [](int, HttpContext<HttpRequest>::HttpContextPtr ctx, HttpServer*) {
-                          ctx->startResponse(200);
-                          ctx->sendHeader("Content-Type", "text/plain");
-                          ctx->sendHeader("Content-Length", "4");
-                          ctx->sendHeader("Connection", "close");
-                          ctx->endHeaders();
-                          ctx->send("pong", 4);
-                          ctx->shutdown();
-                        });
+  router.addSimpleRoute(
+    "/ping", [](int, HttpContext<HttpRequest>::HttpContextPtr ctx, HttpServer*) {
+      ctx->send("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: "
+                "close\r\n\r\npong");
+    });
   router.addSimpleRoute("/big", StaticHandler("./static/big_file", true));
   router.addSimpleRoute("/a", StaticHandler("./static/a", true));
   router.addSimpleRoute("/b", StaticHandler("./static/b", true));
