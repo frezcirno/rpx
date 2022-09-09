@@ -106,21 +106,18 @@ private:
     });
   }
 
-  // user close callback wrapper
+  /**
+   * handleClose() - user close callback wrapper
+   *
+   * Do the cleanup work for TcpServer.
+   */
   void handleClose(const TcpConnectionPtr& conn)
   {
-    // CHECKME: capture conn by value or reference?
-    _baseLoop->runInLoop([&, conn] { handleCloseInLoop(conn); });
-  }
+    // We are in the io loop now
+    _baseLoop->queueInLoop([&, fd = conn->fd()] { _connections.erase(fd); });
 
-  void handleCloseInLoop(const TcpConnectionPtr& conn)
-  {
-    assert(_baseLoop->isInEventLoop());
-    _connections.erase(conn->fd());
-
-    EventLoop* connLoop = conn->getLoop();
-    // CHECKME: capture conn by value or reference?
-    connLoop->queueInLoop([&, conn] {
+    // Keep a ref to conn, so that it won't be destroyed before _userCloseCallback()
+    conn->getLoop()->queueInLoop([&, conn] {
       conn->connectDestroyed();
       if (_userCloseCallback)
         _userCloseCallback(conn);
