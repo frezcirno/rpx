@@ -7,11 +7,11 @@
 #include <iostream>
 #include "HttpRouter.hpp"
 #include "HttpContext.hpp"
-#include "HttpClient.hpp"
+#include "TcpClient.hpp"
 
 class ProxyHandler
 {
-  typedef std::shared_ptr<HttpClient> HttpClientPtr;
+  typedef std::shared_ptr<TcpClient> TcpClientPtr;
   typedef std::shared_ptr<HttpRequest> HttpRequestPtr;
   typedef std::shared_ptr<HttpResponse> HttpResponsePtr;
   typedef std::shared_ptr<HttpContext<HttpRequest>> HttpContextPtr;
@@ -40,36 +40,30 @@ public:
     std::string upPath = msg->path.substr(prefixLen);
     if (upPath.empty())
       upPath.assign("/");
-    HttpClientPtr client = std::make_shared<HttpClient>(ctx->getLoop(), _upAddr);
+    msg->path = upPath;
     msg->headers.insert_or_assign("Host", _hostPort);
     msg->headers.insert_or_assign("X-Forwarded-For", ctx->getConn()->getPeerAddr().toIpPort());
-    client->setConnectCallback([msg, upPath](auto upCtx) {
-      upCtx->startRequest(msg->method, upPath);
-      for (auto& [key, value] : msg->headers)
-        upCtx->sendHeader(key, value);
-      upCtx->endHeaders();
-      upCtx->send(msg->body);
+    TcpClientPtr client = std::make_shared<TcpClient>(ctx->getLoop(), _upAddr);
+    client->setConnectCallback([msg](auto upConn) {
+      upConn->write(msg->serialize());
+      upConn->shutdown();
     });
-    client->setResponseCallback([ctx](auto upCtx) {
-      HttpResponsePtr msg = upCtx->getMessage();
-      ctx->startResponse(msg->status_code, msg->status_message);
-      for (auto& [key, value] : msg->headers)
-        ctx->sendHeader(key, value);
-      ctx->endHeaders();
-      ctx->send(msg->body);
+    client->setMessageCallback([ctx](const TcpConnectionPtr& upConn, StreamBuffer* buf) {
+      ctx->send(buf->data(), buf->size());
+      buf->popFront();
     });
-    client->setCloseCallback([ctx](auto upCtx) { ctx->shutdown(); });
+    client->setCloseCallback([ctx](auto upConn) { ctx->forceClose(); });
     ctx->setUserData(client);
-    ctx->setCloseCallback([ctx]() {
-      HttpClientPtr upClient = std::any_cast<HttpClientPtr>(ctx->getUserData());
+    ctx->setCloseCallback([ctx] {
+      TcpClientPtr upClient = std::any_cast<TcpClientPtr>(ctx->getUserData());
       upClient->setConnectCallback(nullptr);
-      upClient->setResponseCallback(nullptr);
+      upClient->setMessageCallback(nullptr);
       upClient->setWriteCompleteCallback(nullptr);
-      upClient->setCloseCallback([upClient](auto upCtx) {
-        // Hack: Hold a reference of itself, and release it after closeCallback()
+      upClient->setCloseCallback([upClient](auto upConn) {
+        // Hack: Hold a reference of itself until closeCallback() to avoid nullptr
         upClient->setCloseCallback(nullptr);
       });
-      upClient->shutdown();
+      upClient->forceClose();
     });
     client->start();
   }
