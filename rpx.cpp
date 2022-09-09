@@ -38,9 +38,7 @@ int main(int argc, char const* argv[])
       ctx->send("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: "
                 "close\r\n\r\npong");
     });
-  router.addSimpleRoute("/big", StaticHandler("./static/big_file", true));
-  router.addSimpleRoute("/a", StaticHandler("./static/a", true));
-  router.addSimpleRoute("/b", StaticHandler("./static/b", true));
+  router.addSimpleRoute("/static", StaticHandler("."));
   router.addSimpleRoute("/baidu", ProxyHandler("www.baidu.com", 80));
   router.addSimpleRoute("/self", ProxyHandler("127.0.0.1", 8080));
   router.addSimpleRoute("/other", ProxyHandler("127.0.0.1", 8081));
