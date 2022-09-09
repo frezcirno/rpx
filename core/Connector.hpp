@@ -18,11 +18,11 @@ public:
     , _retryDelayMs(kInitRetryDelayMs)
     , _state(DISCONNECTED)
   {}
+
   ~Connector()
   {
-    if (_channel) {
-      abort();
-    }
+    // If assert failed, please check if the connector has been stopped
+    assert(!_channel);
   }
 
   void setNewConnectionCallback(NewConnectionCallback cb)
@@ -30,26 +30,35 @@ public:
     _newConnectionCallback = std::move(cb);
   }
 
+  /**
+   * start() - start the connector
+   *
+   * Can be called in any thread.
+   */
   void start()
   {
     _running = true;
-    _loop->runInLoop([&] {
-      assert(_state == DISCONNECTED);
+    _loop->queueInLoop([&] {
       if (_running)
         connect();
     });
   }
 
+  /**
+   * stop() - stop the connector
+   *
+   * Can be called in any thread.
+   */
   void stop()
   {
     _running = false;
-    // CHECKME: queue or run?
-    _loop->runInLoop([&, that = shared_from_this()] {
-      if (_state == CONNECTING) {
-        setState(DISCONNECTED);
-        int sockfd = destroyChannel();
+    _loop->queueInLoop([that = shared_from_this()] {
+      if (that->_state == CONNECTING) {
+        int sockfd = that->unregisterChannel();
         ::close(sockfd);
       }
+      if (that->_state == CONNECTING || that->_state == RETRYING)
+        that->_channel.reset();
     });
   }
 
@@ -58,6 +67,7 @@ private:
   {
     DISCONNECTED = 0,
     CONNECTING,
+    RETRYING,
     CONNECTED
   };
   static constexpr int kInitRetryDelayMs = 500;
@@ -71,17 +81,17 @@ private:
   int _retryDelayMs;
   States _state;
 
-  void setState(States state)
-  {
-    _state = state;
-  }
-
+  /**
+   * restart() - restart the connector
+   *
+   * Only can be called in io thread.
+   */
   void restart()
   {
     assert(_loop->isInEventLoop());
     _retryDelayMs = kInitRetryDelayMs;
-    setState(DISCONNECTED);
-    start();
+    _running = true;
+    connect();
   }
 
   void connect()
@@ -118,7 +128,7 @@ private:
       }
     }
 
-    setState(CONNECTING);
+    _state = CONNECTING;
     _channel.reset(new Channel(_loop, sockfd));
     _channel->setWriteCallback([&] { handleWrite(); });
     _channel->setErrorCallback([&] { handleError(); });
@@ -129,18 +139,18 @@ private:
   {
     if (_state == CONNECTING) {
       // the work is ended now
-      int sockfd = destroyChannel();
+      int sockfd = unregisterChannel();
       int err = ::getSocketError(sockfd);
       if (err || ::isSelfConnect(sockfd)) {
+        _state = RETRYING;
         retry(sockfd);
-        return;
-      }
-
-      setState(CONNECTED);
-      if (_running) {
-        _newConnectionCallback(sockfd);
       } else {
-        ::close(sockfd);
+        _state = CONNECTED;
+        _channel.reset();
+        if (_running)
+          _newConnectionCallback(sockfd);
+        else
+          ::close(sockfd);
       }
     }
   }
@@ -148,29 +158,29 @@ private:
   void handleError()
   {
     if (_state == CONNECTING) {
-      int sockfd = destroyChannel();
-      int err = ::getSocketError(sockfd);
       perror("connect error");
+      int sockfd = unregisterChannel();
+      int err = ::getSocketError(sockfd);
+      _state = RETRYING;
       retry(sockfd);
     }
   }
 
-  int destroyChannel()
+  int unregisterChannel()
   {
     _channel->unsetAllInterest();
     _channel->remove();
-    int sockfd = _channel->fd();
-    // Can't reset _channel here as we are in Channel::handleEvent()
-    _loop->queueInLoop([&] { _channel.reset(); });
-    return sockfd;
+    return _channel->fd();
   }
 
   void retry(int sockfd)
   {
     ::close(sockfd);
-    setState(DISCONNECTED);
     if (_running) {
-      _loop->runAfter(_retryDelayMs / 1000, [that = shared_from_this()] { that->connect(); });
+      _loop->runAfter(_retryDelayMs / 1000, [that = shared_from_this()] {
+        if (that->_running)
+          that->connect();
+      });
       _retryDelayMs = std::min(_retryDelayMs * 2, kMaxRetryDelayMs);
     }
   }
