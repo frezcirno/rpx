@@ -24,7 +24,17 @@ public:
       _pool.addTask([&, loop = &_loops[i]] { eventloopTask(loop, initLatch, init); });
     initLatch.wait();
   }
-  ~EventLoopThreadPool() {}
+
+  ~EventLoopThreadPool()
+  {
+    stopAllTask();
+  }
+
+  void stopAllTask()
+  {
+    for (auto& loop : _loops)
+      loop->quit();
+  }
 
   EventLoop* getNextLoop() const
   {

@@ -477,9 +477,13 @@ public:
     }
   }
 
-  void quit()
+  __attribute__((no_sanitize_thread)) void quit()
   {
     running = false;
+    if (!isInEventLoop()) {
+      // raise an event to wake up the loop (exit epoll_wait)
+      wakeupWakeup();
+    }
   }
 
   void addOrUpdateChannel(Channel* ch)

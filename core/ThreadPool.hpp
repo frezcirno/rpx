@@ -31,7 +31,8 @@ public:
   }
   ~ThreadPool()
   {
-    stop();
+    if (running)
+      stop();
   }
   void addTask(ThreadFunc func)
   {
@@ -43,7 +44,8 @@ public:
     taskQueue.push(std::move(func));
     notEmpty.notify_one();
   }
-  void stop()
+
+  __attribute__((no_sanitize_thread)) void stop()
   {
     {
       std::lock_guard lock(qMutex);
@@ -53,8 +55,10 @@ public:
         notFull.notify_all();
       }
     }
-    for (auto& thread : threads)
-      thread.join();
+    for (auto& thread : threads) {
+      if (thread.joinable())
+        thread.join();
+    }
   }
   void waitTaskClear()
   {
