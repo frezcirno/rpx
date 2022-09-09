@@ -6,7 +6,7 @@
 #include "Connector.hpp"
 #include "TcpConnection.hpp"
 
-class TcpClient : noncopyable
+class TcpClient : noncopyable, public std::enable_shared_from_this<TcpClient>
 {
 public:
   TcpClient(EventLoop* loop, const InetAddress& serverAddr)
@@ -66,7 +66,7 @@ public:
   }
 
   /**
-   * shutdown(): Shutdown the connection, if exists.
+   * shutdown(): Shutdown the connection if exists.
    */
   void shutdown()
   {
@@ -74,6 +74,17 @@ public:
     std::lock_guard lock(_mutex);
     if (_connection)
       _connection->shutdown();
+  }
+
+  /**
+   * forceClose(): close the connection if exists.
+   */
+  void forceClose()
+  {
+    _running = false;
+    std::lock_guard lock(_mutex);
+    if (_connection)
+      _connection->forceClose();
   }
 
   void setConnectCallback(TcpCallback cb)
@@ -125,7 +136,8 @@ private:
       _connection = conn;
     }
     conn->connectEstablished();
-    _userConnectCallback(conn);
+    if (_userConnectCallback)
+      _userConnectCallback(conn);
   }
 
   // user close callback wrapper
@@ -139,10 +151,14 @@ private:
       _connection.reset();
     }
 
-    conn->connectDestroyed();
-    if (_userCloseCallback)
-      _userCloseCallback(conn);
+    // queueInLoop here, or the connection may be destructed in the middle of a loop
+    _loop->queueInLoop([&, conn] {
+      conn->connectDestroyed();
+      if (_userCloseCallback)
+        _userCloseCallback(conn);
+    });
 
+    // FIXME: reconnect
     if (_reconnect && _running)
       _connector->restart();
   }

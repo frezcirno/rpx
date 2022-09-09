@@ -40,6 +40,10 @@ public:
   {
     _client.shutdown();
   }
+  void forceClose()
+  {
+    _client.forceClose();
+  }
 
   void setConnectCallback(HttpCallback cb)
   {
