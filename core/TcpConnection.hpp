@@ -35,7 +35,10 @@ public:
     _channel->setErrorCallback([&] { handleError(); });
     _socket.setKeepAlive(true);
   }
-  ~TcpConnection() {}
+  ~TcpConnection()
+  {
+    assert(_state == DISCONNECTED);
+  }
 
   EventLoop* getLoop() const
   {
@@ -96,7 +99,13 @@ public:
 
     if (remaining > 0) {
       _writeBuffer.append(data + written, remaining);
-      if (!_channel->hasWriteInterest())
+      bool close;
+      {
+        std::lock_guard lock(_stateLock);
+        close = (_state == DISCONNECTING || _state == DISCONNECTED);
+      }
+      // CHECKME: is it atomic?
+      if (!close && !_channel->hasWriteInterest())
         _channel->setWriteInterest();
     }
     return len;
@@ -111,19 +120,15 @@ public:
    */
   void shutdown()
   {
-    auto state = CONNECTED;
-    if (_state.compare_exchange_strong(state, DISCONNECTING))
-      _loop->runInLoop([&] { _socket.shutdownWrite(); });
+    _loop->runInLoop([&] { _socket.shutdownWrite(); });
   }
 
+  /**
+   * forceClose() - active close the connection
+   */
   void forceClose()
   {
-    // the DISCONNECTED is the final state, so it should be safe
-    if (_state.load() == DISCONNECTED)
-      return;
-
-    auto state = _state.exchange(DISCONNECTING);
-    if (state == CONNECTED || state == DISCONNECTING) {
+    if (compareExchange(ESTABLISHED, DISCONNECTING)) {
       // will call _closeCallback() in the next loop
       _loop->queueInLoop([that = shared_from_this()] { that->handleClose(); });
     }
@@ -139,10 +144,18 @@ public:
   }
 
 public:
+  /**
+   * enum StateE - Connection state
+   *
+   * CONNECTING: Initial state.
+   * ESTABLISHED: The connection has been established.
+   * DISCONNECTING: Active closing.
+   * DISCONNECTED: Closed.
+   */
   enum StateE
   {
     CONNECTING = 0,
-    CONNECTED,
+    ESTABLISHED,
     DISCONNECTING,
     DISCONNECTED,
   };
@@ -152,7 +165,8 @@ private:
   std::unique_ptr<Channel> _channel;
   InetAddress _peerAddr;
   Socket _socket;
-  std::atomic<StateE> _state;
+  StateE _state;
+  std::mutex _stateLock;
 
   TcpMessageCallback _messageCallback;
   TcpCallback _closeCallback;
@@ -166,10 +180,35 @@ private:
 
   zlog_category_t* _zc;
 
+  bool compareExchange(StateE compare, StateE exchange)
+  {
+    std::lock_guard lock(_stateLock);
+    if (_state == compare) {
+      _state = exchange;
+      return true;
+    }
+    return false;
+  }
+
+  bool compare2Exchange(StateE compare1, StateE compare2, StateE exchange)
+  {
+    std::lock_guard lock(_stateLock);
+    if (_state == compare1 || _state == compare2) {
+      _state = exchange;
+      return true;
+    }
+    return false;
+  }
+
   void connectEstablished()
   {
     assert(_loop->isInEventLoop());
-    assert(_state.exchange(CONNECTED) == CONNECTING);
+    {
+      std::lock_guard lock(_stateLock);
+      assert(_state == CONNECTING);
+      _state = ESTABLISHED;
+    }
+    // hold a weak ref to this, in case any callback would close the connection
     _channel->tie(shared_from_this());
     _channel->setReadInterest();
   }
@@ -177,14 +216,16 @@ private:
   /**
    * connectDestroyed()
    *
-   * Cannot be called in handleClose() -> _closeCallback()
+   * TcpServer and TcpClient will call this in their closeCallbacks.
    */
   void connectDestroyed()
   {
     assert(_loop->isInEventLoop());
-    auto state = CONNECTED;
-    if (_state.compare_exchange_strong(state, DISCONNECTED))
+
+    // sometimes, this function can be called without handleClose()
+    if (compareExchange(ESTABLISHED, DISCONNECTED))
       _channel->unsetAllInterest();
+
     _channel->remove();
   }
 
@@ -229,19 +270,28 @@ private:
     }
   }
 
+  /**
+   * handleClose() - called when EPOLLHUP is set
+   *
+   * Will be called in ioLoop after polling
+   */
   void handleClose()
   {
     assert(_loop->isInEventLoop());
-    auto oldstate = _state.exchange(DISCONNECTED);
-    assert(oldstate == CONNECTED || oldstate == DISCONNECTING);
+
+    // The handleClose() may be called multiple times
+    if (!compare2Exchange(ESTABLISHED, DISCONNECTING, DISCONNECTED))
+      return;
+
     _channel->unsetAllInterest();
 
     _messageCallback = nullptr;
     _writeCompleteCallback = nullptr;
+    _errorCallback = nullptr;
     if (_closeCallback) {
-      TcpConnectionPtr guardThis(shared_from_this());
-      // must be the last line
-      _closeCallback(guardThis);
+      // cannot inline, because we will change _closeCallback afterward
+      TcpConnectionPtr conn = shared_from_this();
+      _closeCallback(conn);
       _closeCallback = nullptr;
     }
   }
