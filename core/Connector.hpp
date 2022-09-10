@@ -146,7 +146,8 @@ private:
         retry(sockfd);
       } else {
         _state = CONNECTED;
-        _channel.reset();
+        // avoid reset in the middle of a loop
+        _loop->queueInLoop([&] { _channel.reset(); });
         if (_running)
           _newConnectionCallback(sockfd);
         else
@@ -177,7 +178,7 @@ private:
   {
     ::close(sockfd);
     if (_running) {
-      _loop->runAfter(_retryDelayMs / 1000, [that = shared_from_this()] {
+      _loop->runAfter(_retryDelayMs / 1000.0, [that = shared_from_this()] {
         if (that->_running)
           that->connect();
       });
