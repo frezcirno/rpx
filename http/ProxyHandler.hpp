@@ -45,10 +45,7 @@ public:
     msg->headers.insert_or_assign("Host", _hostPort);
     msg->headers.insert_or_assign("X-Forwarded-For", ctx->getConn()->getPeerAddr().toIpPort());
     TcpClientPtr client = std::make_shared<TcpClient>(ctx->getLoop(), _upAddr);
-    client->setConnectCallback([msg](auto upConn) {
-      upConn->write(msg->serialize());
-      upConn->shutdown();
-    });
+    client->setConnectCallback([msg](auto upConn) { upConn->write(msg->serialize()); });
     client->setMessageCallback([ctx](const TcpConnectionPtr& upConn, StreamBuffer* buf) {
       ctx->send(buf->data(), buf->size());
       buf->popFront();
