@@ -41,10 +41,19 @@ public:
     , _tied(false)
     , _interests(0)
     , _events(0)
+    , _handlingEvent(false)
+    , _addedInLoop(false)
   {
     poller_cb.state = CHAN_UNSET;   // FIXME: hard-coded
   }
-  ~Channel() {}
+  ~Channel()
+  {
+    // The channel cannot be destroyed while it is handling events.
+    assert(!_handlingEvent);
+
+    // The channel cannot be destroyed while it is still in the loop.
+    assert(!_addedInLoop);
+  }
 
   int fd() const
   {
@@ -158,6 +167,7 @@ public:
 
   void handleEventGuarded()
   {
+    _handlingEvent = true;
     if ((_events & EPOLLHUP) && !(_events & EPOLLIN)) {
       if (closeCb)
         closeCb();
@@ -177,6 +187,7 @@ public:
       if (writeCb)
         writeCb();
     }
+    _handlingEvent = false;
   }
 
   void remove();
@@ -212,6 +223,9 @@ private:
 
   std::weak_ptr<void> _tie;
   bool _tied;
+
+  bool _handlingEvent;
+  bool _addedInLoop;
 
 public:
   struct
@@ -571,12 +585,14 @@ private:
 
 inline void Channel::applyInterest()
 {
+  _addedInLoop = true;
   _loop->addOrUpdateChannel(this);
 }
 
 inline void Channel::remove()
 {
   assert(hasNoneInterest());
+  _addedInLoop = false;
   _loop->removeChannel(this);
 }
 
