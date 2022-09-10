@@ -18,6 +18,7 @@
 #include <functional>
 #include <mutex>
 #include <condition_variable>
+#include <zlog.h>
 #include "Utils.hpp"
 #include "Time.hpp"
 #include "ThreadPool.hpp"

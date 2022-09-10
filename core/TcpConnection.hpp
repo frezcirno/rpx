@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <any>
+#include <zlog.h>
 #include "Utils.hpp"
 #include "Socket.hpp"
 #include "StreamBuffer.hpp"

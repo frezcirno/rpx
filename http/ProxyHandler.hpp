@@ -5,6 +5,7 @@
 #include <functional>
 #include <sstream>
 #include <iostream>
+#include <memory>
 #include "HttpRouter.hpp"
 #include "HttpContext.hpp"
 #include "TcpClient.hpp"

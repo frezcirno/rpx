@@ -1,6 +1,7 @@
 #ifndef __UTILS_HPP__
 #define __UTILS_HPP__
 
+#include <stddef.h>
 #include <stdint.h>
 
 template<class T, class M>
