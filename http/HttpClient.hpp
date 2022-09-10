@@ -32,9 +32,9 @@ public:
   {
     _client.start();
   }
-  void stop()
+  void stopConnect()
   {
-    _client.stop();
+    _client.stopConnect();
   }
   void shutdown()
   {

@@ -57,9 +57,9 @@ public:
   }
 
   /**
-   * stop(): Interrupt the connecting process
+   * stopConnect(): Interrupt the connecting process
    */
-  void stop()
+  void stopConnect()
   {
     _running = false;
     _connector->stop();

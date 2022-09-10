@@ -54,6 +54,7 @@ public:
     ctx->setUserData(client);
     ctx->setCloseCallback([ctx] {
       TcpClientPtr upClient = std::any_cast<TcpClientPtr>(ctx->getUserData());
+      upClient->stopConnect();
       upClient->setConnectCallback(nullptr);
       upClient->setMessageCallback(nullptr);
       upClient->setWriteCompleteCallback(nullptr);
